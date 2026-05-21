@@ -11,6 +11,7 @@ position updates, yard-zone awareness, and a visual zone editor.
 - `sensor`: mower status.
 - `sensor`: named yard zone, derived from configured circle or polygon zones.
 - `camera`: read-only satellite yard map with zone overlays and mower marker.
+- `camera`: square mower-centered yard map detail view for notifications.
 - Home Assistant sidebar panel: visual zone editor with satellite imagery.
 
 The integration fetches the initial mower state from the Automower Connect REST
@@ -84,16 +85,18 @@ This repo includes a Home Assistant blueprint at:
 blueprints/automation/automower_yard/mower_problem_notification.yaml
 ```
 
-It triggers when the mower stuck/problem binary sensor turns on, snapshots the
-`Yard Map` camera, and sends a notification with the current yard-zone text plus
-the map image.
+It triggers when the mower stuck/problem binary sensor turns on, snapshots a map
+camera, and sends a notification with mower state, activity, yard-zone text, and
+the map image. Use `Yard Map Detail` for a square mower-centered notification
+image, or `Yard Map` for the full yard.
 
 Inputs:
 
 - Problem sensor, e.g. `binary_sensor.mr_snippers_stuck`
+- Status sensor, e.g. `sensor.mr_snippers_status`
 - Yard zone sensor, e.g. `sensor.mr_snippers_yard_zone`
-- Yard map camera, e.g. `camera.mr_snippers_yard_map`
-- Notify service, e.g. `notify.mobile_app_your_phone`
+- Notification map camera, e.g. `camera.mr_snippers_yard_map_detail`
+- Mobile App notification devices or notify services, e.g. `notify.mobile_app_your_phone`
 
 If HACS does not install the blueprint automatically, copy the blueprint file to:
 

@@ -25,8 +25,8 @@ blueprint:
         entity:
           domain: sensor
     yard_map_camera:
-      name: Yard map camera
-      description: The Automower Yard map camera to attach to the notification.
+      name: Notification map camera
+      description: Select the Automower Yard Map Detail camera for a square mower-centered notification image, or Yard Map for the full yard.
       selector:
         entity:
           domain: camera

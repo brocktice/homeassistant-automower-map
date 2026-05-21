@@ -24,8 +24,11 @@ from .entity import AutomowerYardEntity
 
 WIDTH = 1600
 HEIGHT = 900
+DETAIL_WIDTH = 800
+DETAIL_HEIGHT = 800
 PADDING = 40
 TEXT_SCALE = WIDTH / 900
+DETAIL_TEXT_SCALE = DETAIL_WIDTH / 900
 MAP_LEFT = 0
 MAP_TOP = 0
 MAP_RIGHT = WIDTH
@@ -50,9 +53,15 @@ async def async_setup_entry(
 ) -> None:
     """Set up yard map cameras."""
     coordinator: AutomowerYardCoordinator = entry.runtime_data
-    async_add_entities(
-        AutomowerYardMapCamera(coordinator, mower_id) for mower_id in coordinator.data
-    )
+    entities = []
+    for mower_id in coordinator.data:
+        entities.extend(
+            [
+                AutomowerYardMapCamera(coordinator, mower_id),
+                AutomowerYardDetailMapCamera(coordinator, mower_id),
+            ]
+        )
+    async_add_entities(entities)
 
 
 class AutomowerYardMapCamera(AutomowerYardEntity, Camera):
@@ -77,7 +86,7 @@ class AutomowerYardMapCamera(AutomowerYardEntity, Camera):
         if not points:
             return _empty_svg("No mower position or yard zones available").encode()
 
-        bounds = _bounds(points)
+        bounds = _bounds(points, WIDTH, HEIGHT)
         tile_data = await _satellite_tiles(self.hass, bounds)
         return await self.hass.async_add_executor_job(
             _render_png,
@@ -87,6 +96,11 @@ class AutomowerYardMapCamera(AutomowerYardEntity, Camera):
             self.mower_name,
             self.attributes.get("yard_zone") or "Unknown",
             tile_data,
+            WIDTH,
+            HEIGHT,
+            70,
+            112,
+            TEXT_SCALE,
         )
 
     @property
@@ -164,6 +178,45 @@ class AutomowerYardMapCamera(AutomowerYardEntity, Camera):
         </svg>"""
 
 
+class AutomowerYardDetailMapCamera(AutomowerYardMapCamera):
+    """Camera entity that renders a square mower-centered map."""
+
+    _attr_name = "Yard Map Detail"
+
+    def __init__(self, coordinator: AutomowerYardCoordinator, mower_id: str) -> None:
+        """Initialize the camera."""
+        super().__init__(coordinator, mower_id)
+        self._attr_unique_id = f"{mower_id}_yard_map_detail"
+
+    async def async_camera_image(
+        self, width: int | None = None, height: int | None = None
+    ) -> bytes | None:
+        """Return square PNG image bytes centered on the mower."""
+        zones = self.coordinator.zones
+        mower_point = _latest_position(self.attributes)
+        points = _collect_points(zones, mower_point)
+        if not points:
+            return _empty_svg("No mower position or yard zones available").encode()
+
+        full_bounds = _bounds(points, WIDTH, HEIGHT)
+        bounds = _detail_bounds(full_bounds, mower_point)
+        tile_data = await _satellite_tiles(self.hass, bounds)
+        return await self.hass.async_add_executor_job(
+            _render_png,
+            bounds,
+            zones,
+            mower_point,
+            self.mower_name,
+            self.attributes.get("yard_zone") or "Unknown",
+            tile_data,
+            DETAIL_WIDTH,
+            DETAIL_HEIGHT,
+            0,
+            0,
+            DETAIL_TEXT_SCALE,
+        )
+
+
 def _latest_position(attributes: dict[str, Any]) -> tuple[float, float] | None:
     positions = attributes.get("positions")
     if not isinstance(positions, list) or not positions:
@@ -200,7 +253,9 @@ def _collect_points(
     return points
 
 
-def _bounds(points: list[tuple[float, float]]) -> dict[str, float]:
+def _bounds(
+    points: list[tuple[float, float]], image_width: int, image_height: int
+) -> dict[str, float]:
     reference_lat = sum(lat for lat, _ in points) / len(points)
     xy_points = [_to_xy(lat, lon, {"reference_lat": reference_lat}) for lat, lon in points]
     min_x = min(x for x, _ in xy_points)
@@ -220,7 +275,7 @@ def _bounds(points: list[tuple[float, float]]) -> dict[str, float]:
     min_y -= margin_y
     max_y += margin_y
 
-    target_aspect = (WIDTH - PADDING * 2) / (HEIGHT - PADDING * 2 - 70)
+    target_aspect = (image_width - PADDING * 2) / (image_height - PADDING * 2 - 70)
     current_aspect = (max_x - min_x) / (max_y - min_y)
     if current_aspect < target_aspect:
         needed_width = (max_y - min_y) * target_aspect
@@ -242,6 +297,26 @@ def _bounds(points: list[tuple[float, float]]) -> dict[str, float]:
     }
 
 
+def _detail_bounds(
+    full_bounds: dict[str, float], mower_point: tuple[float, float] | None
+) -> dict[str, float]:
+    """Return a square crop centered on the mower, roughly half the full map width."""
+    if mower_point is None:
+        return full_bounds
+    mower_x, mower_y = _to_xy(mower_point[0], mower_point[1], full_bounds)
+    full_width = full_bounds["max_x"] - full_bounds["min_x"]
+    full_height = full_bounds["max_y"] - full_bounds["min_y"]
+    side = max(full_width * 0.5, full_height * 0.5, 18)
+    half = side / 2
+    return {
+        "reference_lat": full_bounds["reference_lat"],
+        "min_x": mower_x - half,
+        "max_x": mower_x + half,
+        "min_y": mower_y - half,
+        "max_y": mower_y + half,
+    }
+
+
 def _to_xy(lat: float, lon: float, bounds: dict[str, float]) -> tuple[float, float]:
     reference_lat = bounds["reference_lat"]
     x = math.radians(lon) * EARTH_RADIUS_M * math.cos(math.radians(reference_lat))
@@ -249,15 +324,21 @@ def _to_xy(lat: float, lon: float, bounds: dict[str, float]) -> tuple[float, flo
     return x, y
 
 
-def _projector(bounds: dict[str, float]):
-    drawable_width = WIDTH - PADDING * 2
-    drawable_height = HEIGHT - PADDING * 2 - 70
+def _projector(
+    bounds: dict[str, float],
+    image_width: int = WIDTH,
+    image_height: int = HEIGHT,
+    top_offset: int = 70,
+    y_base: int = 112,
+):
+    drawable_width = image_width - PADDING * 2
+    drawable_height = image_height - PADDING * 2 - top_offset
     scale = max(
         drawable_width / (bounds["max_x"] - bounds["min_x"]),
         drawable_height / (bounds["max_y"] - bounds["min_y"]),
     )
-    offset_x = (WIDTH - (bounds["max_x"] - bounds["min_x"]) * scale) / 2
-    offset_y = 112 + (drawable_height - (bounds["max_y"] - bounds["min_y"]) * scale) / 2
+    offset_x = (image_width - (bounds["max_x"] - bounds["min_x"]) * scale) / 2
+    offset_y = y_base + (drawable_height - (bounds["max_y"] - bounds["min_y"]) * scale) / 2
 
     def project(point: tuple[float, float]) -> tuple[float, float]:
         x, y = point
@@ -269,10 +350,17 @@ def _projector(bounds: dict[str, float]):
     return project
 
 
-def _radius_px(radius_m: float, bounds: dict[str, float]) -> float:
+def _radius_px(
+    radius_m: float,
+    bounds: dict[str, float],
+    image_width: int = WIDTH,
+    image_height: int = HEIGHT,
+    top_offset: int = 70,
+) -> float:
     scale = max(
-        (WIDTH - PADDING * 2) / (bounds["max_x"] - bounds["min_x"]),
-        (HEIGHT - PADDING * 2 - 70) / (bounds["max_y"] - bounds["min_y"]),
+        (image_width - PADDING * 2) / (bounds["max_x"] - bounds["min_x"]),
+        (image_height - PADDING * 2 - top_offset)
+        / (bounds["max_y"] - bounds["min_y"]),
     )
     return radius_m * scale
 
@@ -387,12 +475,17 @@ def _render_png(
     mower_name: str,
     yard_zone: str,
     tile_data: list[tuple[int, int, int, bytes]],
+    image_width: int = WIDTH,
+    image_height: int = HEIGHT,
+    top_offset: int = 70,
+    y_base: int = 112,
+    text_scale: float = TEXT_SCALE,
 ) -> bytes:
-    image = Image.new("RGB", (WIDTH, HEIGHT), "#f4f6f5")
+    image = Image.new("RGB", (image_width, image_height), "#f4f6f5")
     draw = ImageDraw.Draw(image, "RGBA")
-    draw.rectangle((0, 0, WIDTH, HEIGHT), fill="#dfe7e1")
+    draw.rectangle((0, 0, image_width, image_height), fill="#dfe7e1")
 
-    project = _projector(bounds)
+    project = _projector(bounds, image_width, image_height, top_offset, y_base)
     for zoom, tile_x, tile_y, data in tile_data:
         try:
             tile = Image.open(BytesIO(data)).convert("RGB")
@@ -410,7 +503,7 @@ def _render_png(
         tile = tile.resize((box[2], box[3]))
         intersection = _intersect_rect(
             (box[0], box[1], box[0] + box[2], box[1] + box[3]),
-            (MAP_LEFT, MAP_TOP, MAP_RIGHT, MAP_BOTTOM),
+            (MAP_LEFT, MAP_TOP, image_width, image_height),
         )
         if intersection is None:
             continue
@@ -422,7 +515,7 @@ def _render_png(
         )
         image.paste(tile.crop(crop), (intersection[0], intersection[1]))
 
-    label_font = _font(8)
+    label_font = _font(8, text_scale)
 
     labels: list[tuple[str, float, float]] = []
     for index, zone in enumerate(zones):
@@ -431,7 +524,12 @@ def _render_png(
         if _is_circle(zone):
             center = _to_xy(float(zone["center"][0]), float(zone["center"][1]), bounds)
             x, y = project(center)
-            radius = max(4, _radius_px(float(zone["radius_m"]), bounds))
+            radius = max(
+                4,
+                _radius_px(
+                    float(zone["radius_m"]), bounds, image_width, image_height, top_offset
+                ),
+            )
             draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=color, outline=outline, width=5)
             labels.append((str(zone["name"]), x, y))
         elif isinstance(zone.get("polygon"), list):
@@ -449,7 +547,7 @@ def _render_png(
             labels.append((str(zone["name"]), cx, cy))
 
     for text, x, y in labels:
-        _draw_label(draw, text, x, y, label_font)
+        _draw_label(draw, text, x, y, label_font, text_scale)
 
     if mower_point:
         x, y = project(_to_xy(mower_point[0], mower_point[1], bounds))
@@ -471,8 +569,8 @@ def _render_png(
     return output.getvalue()
 
 
-def _font(size: int):
-    scaled_size = round(size * TEXT_SCALE)
+def _font(size: int, text_scale: float = TEXT_SCALE):
+    scaled_size = round(size * text_scale)
     for path in FONT_PATHS:
         try:
             return ImageFont.truetype(path, scaled_size)
@@ -481,21 +579,23 @@ def _font(size: int):
     return ImageFont.load_default(scaled_size)
 
 
-def _draw_label(draw: ImageDraw.ImageDraw, text: str, x: float, y: float, font) -> None:
+def _draw_label(
+    draw: ImageDraw.ImageDraw, text: str, x: float, y: float, font, text_scale: float
+) -> None:
     bbox = draw.textbbox((0, 0), text, font=font)
     width = bbox[2] - bbox[0]
     height = bbox[3] - bbox[1]
     pos = (x - width / 2, y - height / 2)
-    pad_x = round(4 * TEXT_SCALE)
-    pad_y = round(2 * TEXT_SCALE)
+    pad_x = round(4 * text_scale)
+    pad_y = round(2 * text_scale)
     box = (
         pos[0] - pad_x,
         pos[1] - pad_y,
         pos[0] + width + pad_x,
         pos[1] + height + pad_y,
     )
-    draw.rounded_rectangle(box, radius=round(5 * TEXT_SCALE), fill=(255, 255, 255, 218))
-    draw.rounded_rectangle(box, radius=round(5 * TEXT_SCALE), outline=(23, 32, 27, 80), width=1)
+    draw.rounded_rectangle(box, radius=round(5 * text_scale), fill=(255, 255, 255, 218))
+    draw.rounded_rectangle(box, radius=round(5 * text_scale), outline=(23, 32, 27, 80), width=1)
     draw.text(pos, text, fill="#17201b", font=font)
 
 
