@@ -24,9 +24,18 @@ blueprint:
       selector:
         entity:
           domain: camera
+    notify_devices:
+      name: Notification devices
+      description: Mobile App devices to notify. These only appear after the Home Assistant Companion App has connected to this Home Assistant instance.
+      default: []
+      selector:
+        device:
+          integration: mobile_app
+          multiple: true
     notify_service:
-      name: Notify service
-      description: "Example: notify.mobile_app_your_phone"
+      name: Fallback notify service
+      description: "Optional fallback if no devices are selected. Example: notify.mobile_app_your_phone"
+      default: ""
       selector:
         text:
     title:
@@ -50,6 +59,8 @@ trigger:
 variables:
   zone_entity: !input yard_zone_sensor
   camera_entity: !input yard_map_camera
+  notify_devices: !input notify_devices
+  notify_service: !input notify_service
   notification_title: !input title
   notification_prefix: !input message_prefix
   zone_name: "{{ states(zone_entity) }}"
@@ -65,14 +76,37 @@ action:
       filename: "{{ snapshot_path }}"
   - delay:
       seconds: 1
-  - service: !input notify_service
-    data:
-      title: "{{ notification_title }}"
-      message: >-
-        {{ notification_prefix }}
-        Location: {{ zone_name if zone_name not in ['unknown', 'Unknown', 'unavailable'] else 'unknown yard zone' }}.
-        {% if zone_list | count > 1 %}
-        Matching zones: {{ zone_list | join(', ') }}.
-        {% endif %}
-      data:
-        image: "{{ snapshot_url }}"
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ notify_devices | count > 0 }}"
+        sequence:
+          - repeat:
+              for_each: "{{ notify_devices }}"
+              sequence:
+                - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+                  data:
+                    title: "{{ notification_title }}"
+                    message: >-
+                      {{ notification_prefix }}
+                      Location: {{ zone_name if zone_name not in ['unknown', 'Unknown', 'unavailable'] else 'unknown yard zone' }}.
+                      {% if zone_list | count > 1 %}
+                      Matching zones: {{ zone_list | join(', ') }}.
+                      {% endif %}
+                    data:
+                      image: "{{ snapshot_url }}"
+      - conditions:
+          - condition: template
+            value_template: "{{ notify_service | length > 0 }}"
+        sequence:
+          - service: "{{ notify_service }}"
+            data:
+              title: "{{ notification_title }}"
+              message: >-
+                {{ notification_prefix }}
+                Location: {{ zone_name if zone_name not in ['unknown', 'Unknown', 'unavailable'] else 'unknown yard zone' }}.
+                {% if zone_list | count > 1 %}
+                Matching zones: {{ zone_list | join(', ') }}.
+                {% endif %}
+              data:
+                image: "{{ snapshot_url }}"
