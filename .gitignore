@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Home Assistant local/test data
+.storage/
+home-assistant.log
+home-assistant_v2.db*
+deps/
+tts/
+www/automower_yard_problem_map.png
+
+# Local generated files
+tools/mower_location.json
+.env
+*.secret
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

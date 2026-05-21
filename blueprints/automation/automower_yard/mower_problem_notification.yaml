@@ -1,0 +1,78 @@
+blueprint:
+  name: Automower Yard - Problem notification with map
+  description: >
+    Send a mobile notification with the mower's current yard-zone description
+    and a camera snapshot of the Automower Yard map when the mower enters a
+    problem/stuck state.
+  domain: automation
+  input:
+    problem_sensor:
+      name: Problem/stuck sensor
+      description: The Automower Yard stuck/problem binary sensor.
+      selector:
+        entity:
+          domain: binary_sensor
+    yard_zone_sensor:
+      name: Yard zone sensor
+      description: The Automower Yard yard-zone sensor.
+      selector:
+        entity:
+          domain: sensor
+    yard_map_camera:
+      name: Yard map camera
+      description: The Automower Yard map camera to attach to the notification.
+      selector:
+        entity:
+          domain: camera
+    notify_service:
+      name: Notify service
+      description: Example: notify.mobile_app_your_phone
+      selector:
+        text:
+    title:
+      name: Notification title
+      default: Mower needs attention
+      selector:
+        text:
+    message_prefix:
+      name: Message prefix
+      default: The mower is in a problem state.
+      selector:
+        text:
+
+mode: single
+
+trigger:
+  - platform: state
+    entity_id: !input problem_sensor
+    to: "on"
+
+variables:
+  zone_entity: !input yard_zone_sensor
+  camera_entity: !input yard_map_camera
+  notification_title: !input title
+  notification_prefix: !input message_prefix
+  zone_name: "{{ states(zone_entity) }}"
+  zone_list: "{{ state_attr(zone_entity, 'yard_zones') or [] }}"
+  snapshot_path: /config/www/automower_yard_problem_map.png
+  snapshot_url: /local/automower_yard_problem_map.png
+
+action:
+  - service: camera.snapshot
+    target:
+      entity_id: !input yard_map_camera
+    data:
+      filename: "{{ snapshot_path }}"
+  - delay:
+      seconds: 1
+  - service: !input notify_service
+    data:
+      title: "{{ notification_title }}"
+      message: >-
+        {{ notification_prefix }}
+        Location: {{ zone_name if zone_name not in ['unknown', 'Unknown', 'unavailable'] else 'unknown yard zone' }}.
+        {% if zone_list | count > 1 %}
+        Matching zones: {{ zone_list | join(', ') }}.
+        {% endif %}
+      data:
+        image: "{{ snapshot_url }}"
