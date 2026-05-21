@@ -82,12 +82,38 @@ variables:
   mower_state: "{{ states(status_entity) }}"
   mower_activity: "{{ state_attr(status_entity, 'activity') or 'unknown' }}"
   mower_error_code: "{{ state_attr(problem_entity, 'error_code') }}"
+  mower_state_label: >-
+    {% set labels = {
+      'FATAL_ERROR': 'Needs attention',
+      'ERROR': 'Needs attention',
+      'STOPPED': 'Stopped',
+      'IN_OPERATION': 'In operation',
+      'PAUSED': 'Paused',
+      'RESTRICTED': 'Restricted',
+      'OFF': 'Off',
+      'UNKNOWN': 'Unknown'
+    } %}
+    {{ labels.get(mower_state, mower_state | replace('_', ' ') | title) if mower_state not in ['unknown', 'Unknown', 'unavailable'] else 'unknown' }}
+  mower_activity_label: >-
+    {% set labels = {
+      'MOWING': 'Mowing',
+      'GOING_HOME': 'Going home',
+      'CHARGING': 'Charging',
+      'LEAVING': 'Leaving',
+      'PARKED_IN_CS': 'Parked at charger',
+      'STOPPED_IN_GARDEN': 'Stopped in yard',
+      'LIFTED': 'Lifted',
+      'NO_DRIVE': 'No drive',
+      'NOT_APPLICABLE': 'Not applicable',
+      'UNKNOWN': 'Unknown'
+    } %}
+    {{ labels.get(mower_activity, mower_activity | replace('_', ' ') | title) if mower_activity not in ['unknown', 'Unknown', 'unavailable'] else 'unknown' }}
   zone_name: "{{ states(zone_entity) }}"
   zone_list: "{{ state_attr(zone_entity, 'yard_zones') or [] }}"
   notification_message: >-
     {{ notification_prefix }}
-    State: {{ mower_state if mower_state not in ['unknown', 'Unknown', 'unavailable'] else 'unknown' }}.
-    Activity: {{ mower_activity }}.
+    Status: {{ mower_state_label }}.
+    Activity: {{ mower_activity_label }}.
     {% if mower_error_code not in [none, '', 0, '0'] %}
     Error code: {{ mower_error_code }}.
     {% endif %}
