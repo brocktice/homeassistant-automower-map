@@ -120,6 +120,8 @@ action:
                     message: "{{ notification_message }}"
                     data:
                       image: "{{ snapshot_url }}"
+                      url: "{{ snapshot_url }}"
+                      clickAction: "{{ snapshot_url }}"
   - choose:
       - conditions:
           - condition: template
@@ -134,6 +136,8 @@ action:
                     message: "{{ notification_message }}"
                     data:
                       image: "{{ snapshot_url }}"
+                      url: "{{ snapshot_url }}"
+                      clickAction: "{{ snapshot_url }}"
   - choose:
       - conditions:
           - condition: template
@@ -145,3 +149,5 @@ action:
               message: "{{ notification_message }}"
               data:
                 image: "{{ snapshot_url }}"
+                url: "{{ snapshot_url }}"
+                clickAction: "{{ snapshot_url }}"
