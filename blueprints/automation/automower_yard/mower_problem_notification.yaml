@@ -26,7 +26,7 @@ blueprint:
           domain: camera
     notify_service:
       name: Notify service
-      description: Example: notify.mobile_app_your_phone
+      description: "Example: notify.mobile_app_your_phone"
       selector:
         text:
     title:
