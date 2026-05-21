@@ -12,6 +12,7 @@ position updates, yard-zone awareness, and a visual zone editor.
 - `sensor`: named yard zone, derived from configured circle or polygon zones.
 - `camera`: read-only satellite yard map with zone overlays and mower marker.
 - `camera`: square mower-centered yard map detail view for notifications.
+- `camera`: aging satellite heatmap that fades old stuck/ok mower samples.
 - Home Assistant sidebar panel: visual zone editor with satellite imagery.
 
 The integration fetches the initial mower state from the Automower Connect REST
@@ -21,6 +22,10 @@ events.
 When a mower is inside multiple zones, the `yard_zones` attribute lists matches
 from smallest zone to largest zone. The displayed yard-zone state joins them in
 that order.
+
+The heatmap stores throttled mower position samples in Home Assistant storage.
+Recent stuck/problem samples render red, normal samples render green, and both
+fade out over time so fixed trouble spots cool down automatically.
 
 ## Husqvarna setup
 

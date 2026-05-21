@@ -17,6 +17,7 @@ async def async_setup_entry(
 ) -> bool:
     """Set up Automower Yard from a config entry."""
     coordinator = AutomowerYardCoordinator(hass, entry)
+    await coordinator.async_load_heatmap()
     await coordinator.async_config_entry_first_refresh()
     await coordinator.async_start_websocket()
 

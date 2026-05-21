@@ -17,9 +17,10 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.util import dt as dt_util
 
-from .const import ATTR_YARD_ZONES
-from .coordinator import AutomowerYardCoordinator
+from .const import ATTR_HEATMAP_MAX_AGE_DAYS, ATTR_HEATMAP_SAMPLE_COUNT, ATTR_YARD_ZONES
+from .coordinator import HEATMAP_MAX_AGE, AutomowerYardCoordinator
 from .entity import AutomowerYardEntity
 
 WIDTH = 1600
@@ -59,6 +60,7 @@ async def async_setup_entry(
             [
                 AutomowerYardMapCamera(coordinator, mower_id),
                 AutomowerYardDetailMapCamera(coordinator, mower_id),
+                AutomowerYardHeatmapCamera(coordinator, mower_id),
             ]
         )
     async_add_entities(entities)
@@ -101,6 +103,7 @@ class AutomowerYardMapCamera(AutomowerYardEntity, Camera):
             70,
             112,
             TEXT_SCALE,
+            [],
         )
 
     @property
@@ -214,6 +217,64 @@ class AutomowerYardDetailMapCamera(AutomowerYardMapCamera):
             0,
             0,
             DETAIL_TEXT_SCALE,
+            [],
+        )
+
+
+class AutomowerYardHeatmapCamera(AutomowerYardMapCamera):
+    """Camera entity that renders an aging stuck/ok heatmap."""
+
+    _attr_name = "Yard Heatmap"
+
+    def __init__(self, coordinator: AutomowerYardCoordinator, mower_id: str) -> None:
+        """Initialize the camera."""
+        super().__init__(coordinator, mower_id)
+        self._attr_unique_id = f"{mower_id}_yard_heatmap"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return heatmap attributes."""
+        return {
+            **super().extra_state_attributes,
+            ATTR_HEATMAP_SAMPLE_COUNT: len(
+                self.coordinator.heatmap_samples(self.mower_id)
+            ),
+            ATTR_HEATMAP_MAX_AGE_DAYS: HEATMAP_MAX_AGE.days,
+        }
+
+    async def async_camera_image(
+        self, width: int | None = None, height: int | None = None
+    ) -> bytes | None:
+        """Return heatmap PNG image bytes."""
+        zones = self.coordinator.zones
+        mower_point = _latest_position(self.attributes)
+        samples = self.coordinator.heatmap_samples(self.mower_id)
+        sample_points = [
+            (float(sample["latitude"]), float(sample["longitude"]))
+            for sample in samples
+            if _coerce_float(sample.get("latitude")) is not None
+            and _coerce_float(sample.get("longitude")) is not None
+        ]
+        points = _collect_points(zones, mower_point) + sample_points
+        if not points:
+            return _empty_svg("No mower position, yard zones, or heatmap samples available").encode()
+
+        bounds = _bounds(points, WIDTH, HEIGHT)
+        tile_data = await _satellite_tiles(self.hass, bounds)
+        return await self.hass.async_add_executor_job(
+            _render_png,
+            bounds,
+            zones,
+            mower_point,
+            self.mower_name,
+            self.attributes.get("yard_zone") or "Unknown",
+            tile_data,
+            WIDTH,
+            HEIGHT,
+            70,
+            112,
+            TEXT_SCALE,
+            samples,
         )
 
 
@@ -224,6 +285,13 @@ def _latest_position(attributes: dict[str, Any]) -> tuple[float, float] | None:
     try:
         return float(positions[0]["latitude"]), float(positions[0]["longitude"])
     except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _coerce_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
         return None
 
 
@@ -480,6 +548,7 @@ def _render_png(
     top_offset: int = 70,
     y_base: int = 112,
     text_scale: float = TEXT_SCALE,
+    heatmap_samples: list[dict[str, Any]] | None = None,
 ) -> bytes:
     image = Image.new("RGB", (image_width, image_height), "#f4f6f5")
     draw = ImageDraw.Draw(image, "RGBA")
@@ -514,6 +583,9 @@ def _render_png(
             intersection[3] - box[1],
         )
         image.paste(tile.crop(crop), (intersection[0], intersection[1]))
+
+    if heatmap_samples:
+        _draw_heatmap(draw, bounds, heatmap_samples, image_width, image_height, top_offset, y_base)
 
     label_font = _font(8, text_scale)
 
@@ -567,6 +639,63 @@ def _render_png(
     output = BytesIO()
     image.save(output, format="PNG")
     return output.getvalue()
+
+
+def _draw_heatmap(
+    draw: ImageDraw.ImageDraw,
+    bounds: dict[str, float],
+    samples: list[dict[str, Any]],
+    image_width: int,
+    image_height: int,
+    top_offset: int,
+    y_base: int,
+) -> None:
+    """Draw age-decayed stuck/ok samples over the satellite map."""
+    now = dt_util.utcnow()
+    max_age_seconds = HEATMAP_MAX_AGE.total_seconds()
+    project = _projector(bounds, image_width, image_height, top_offset, y_base)
+    radius = max(
+        18,
+        min(70, _radius_px(8, bounds, image_width, image_height, top_offset)),
+    )
+
+    for sample in samples:
+        latitude = _coerce_float(sample.get("latitude"))
+        longitude = _coerce_float(sample.get("longitude"))
+        sample_time = _sample_datetime(sample)
+        if latitude is None or longitude is None or sample_time is None:
+            continue
+        age_seconds = max(0.0, (now - sample_time).total_seconds())
+        weight = max(0.0, 1.0 - (age_seconds / max_age_seconds))
+        if weight <= 0:
+            continue
+        x, y = project(_to_xy(latitude, longitude, bounds))
+        if sample.get("stuck"):
+            fill = (220, 32, 32, round(38 + 120 * weight))
+            outline = (138, 18, 18, round(45 + 90 * weight))
+            sample_radius = radius * (1.1 + 0.6 * weight)
+        else:
+            fill = (34, 160, 82, round(14 + 45 * weight))
+            outline = (20, 100, 52, round(10 + 35 * weight))
+            sample_radius = radius * (0.75 + 0.35 * weight)
+        draw.ellipse(
+            (
+                x - sample_radius,
+                y - sample_radius,
+                x + sample_radius,
+                y + sample_radius,
+            ),
+            fill=fill,
+            outline=outline,
+            width=max(1, round(2 * weight)),
+        )
+
+
+def _sample_datetime(sample: dict[str, Any]):
+    value = sample.get("ts")
+    if not isinstance(value, str):
+        return None
+    return dt_util.parse_datetime(value)
 
 
 def _font(size: int, text_scale: float = TEXT_SCALE):
