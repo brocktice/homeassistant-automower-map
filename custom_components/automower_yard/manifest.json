@@ -3,9 +3,9 @@
   "name": "Automower Yard",
   "codeowners": [],
   "config_flow": true,
-  "documentation": "https://github.com/brock/automower-yard",
+  "documentation": "https://github.com/brocktice/homeassistant-automower-map",
   "iot_class": "cloud_push",
-  "issue_tracker": "https://github.com/brock/automower-yard/issues",
+  "issue_tracker": "https://github.com/brocktice/homeassistant-automower-map/issues",
   "dependencies": ["frontend", "http", "panel_custom"],
   "requirements": [],
   "version": "0.1.0"
