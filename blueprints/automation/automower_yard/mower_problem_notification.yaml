@@ -12,6 +12,12 @@ blueprint:
       selector:
         entity:
           domain: binary_sensor
+    status_sensor:
+      name: Status sensor
+      description: The Automower Yard status sensor for mower state and activity.
+      selector:
+        entity:
+          domain: sensor
     yard_zone_sensor:
       name: Yard zone sensor
       description: The Automower Yard yard-zone sensor.
@@ -57,14 +63,30 @@ trigger:
     to: "on"
 
 variables:
+  problem_entity: !input problem_sensor
+  status_entity: !input status_sensor
   zone_entity: !input yard_zone_sensor
   camera_entity: !input yard_map_camera
   notify_devices: !input notify_devices
   notify_service: !input notify_service
   notification_title: !input title
   notification_prefix: !input message_prefix
+  mower_state: "{{ states(status_entity) }}"
+  mower_activity: "{{ state_attr(status_entity, 'activity') or 'unknown' }}"
+  mower_error_code: "{{ state_attr(problem_entity, 'error_code') }}"
   zone_name: "{{ states(zone_entity) }}"
   zone_list: "{{ state_attr(zone_entity, 'yard_zones') or [] }}"
+  notification_message: >-
+    {{ notification_prefix }}
+    State: {{ mower_state if mower_state not in ['unknown', 'Unknown', 'unavailable'] else 'unknown' }}.
+    Activity: {{ mower_activity }}.
+    {% if mower_error_code not in [none, '', 0, '0'] %}
+    Error code: {{ mower_error_code }}.
+    {% endif %}
+    Location: {{ zone_name if zone_name not in ['unknown', 'Unknown', 'unavailable'] else 'unknown yard zone' }}.
+    {% if zone_list | count > 1 %}
+    Matching zones: {{ zone_list | join(', ') }}.
+    {% endif %}
   snapshot_path: /config/www/automower_yard_problem_map.png
   snapshot_url: /local/automower_yard_problem_map.png
 
@@ -87,12 +109,7 @@ action:
                 - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
                   data:
                     title: "{{ notification_title }}"
-                    message: >-
-                      {{ notification_prefix }}
-                      Location: {{ zone_name if zone_name not in ['unknown', 'Unknown', 'unavailable'] else 'unknown yard zone' }}.
-                      {% if zone_list | count > 1 %}
-                      Matching zones: {{ zone_list | join(', ') }}.
-                      {% endif %}
+                    message: "{{ notification_message }}"
                     data:
                       image: "{{ snapshot_url }}"
       - conditions:
@@ -102,11 +119,6 @@ action:
           - service: "{{ notify_service }}"
             data:
               title: "{{ notification_title }}"
-              message: >-
-                {{ notification_prefix }}
-                Location: {{ zone_name if zone_name not in ['unknown', 'Unknown', 'unavailable'] else 'unknown yard zone' }}.
-                {% if zone_list | count > 1 %}
-                Matching zones: {{ zone_list | join(', ') }}.
-                {% endif %}
+              message: "{{ notification_message }}"
               data:
                 image: "{{ snapshot_url }}"
