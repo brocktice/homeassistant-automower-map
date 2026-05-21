@@ -10,7 +10,7 @@ import math
 from typing import Any
 
 from aiohttp import ClientError
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from homeassistant.components.camera import Camera
 from homeassistant.config_entries import ConfigEntry
@@ -585,7 +585,15 @@ def _render_png(
         image.paste(tile.crop(crop), (intersection[0], intersection[1]))
 
     if heatmap_samples:
-        _draw_heatmap(draw, bounds, heatmap_samples, image_width, image_height, top_offset, y_base)
+        _apply_heatmap(
+            image,
+            bounds,
+            heatmap_samples,
+            image_width,
+            image_height,
+            top_offset,
+            y_base,
+        )
 
     label_font = _font(8, text_scale)
 
@@ -641,8 +649,8 @@ def _render_png(
     return output.getvalue()
 
 
-def _draw_heatmap(
-    draw: ImageDraw.ImageDraw,
+def _apply_heatmap(
+    image: Image.Image,
     bounds: dict[str, float],
     samples: list[dict[str, Any]],
     image_width: int,
@@ -650,14 +658,16 @@ def _draw_heatmap(
     top_offset: int,
     y_base: int,
 ) -> None:
-    """Draw age-decayed stuck/ok samples over the satellite map."""
+    """Composite an age-decayed smooth stuck/ok heatmap over the satellite map."""
     now = dt_util.utcnow()
     max_age_seconds = HEATMAP_MAX_AGE.total_seconds()
+    scale = 0.5
+    layer_size = (round(image_width * scale), round(image_height * scale))
+    layer_width, layer_height = layer_size
+    red_values = [0] * (layer_width * layer_height)
+    green_values = [0] * (layer_width * layer_height)
     project = _projector(bounds, image_width, image_height, top_offset, y_base)
-    radius = max(
-        18,
-        min(70, _radius_px(8, bounds, image_width, image_height, top_offset)),
-    )
+    sample_radius = max(2, round(3 * scale))
 
     for sample in samples:
         latitude = _coerce_float(sample.get("latitude"))
@@ -670,25 +680,52 @@ def _draw_heatmap(
         if weight <= 0:
             continue
         x, y = project(_to_xy(latitude, longitude, bounds))
+        layer_x = round(x * scale)
+        layer_y = round(y * scale)
+        intensity = round(35 + 150 * weight)
+        values = red_values if sample.get("stuck") else green_values
         if sample.get("stuck"):
-            fill = (220, 32, 32, round(38 + 120 * weight))
-            outline = (138, 18, 18, round(45 + 90 * weight))
-            sample_radius = radius * (1.1 + 0.6 * weight)
+            sample_intensity = intensity
         else:
-            fill = (34, 160, 82, round(14 + 45 * weight))
-            outline = (20, 100, 52, round(10 + 35 * weight))
-            sample_radius = radius * (0.75 + 0.35 * weight)
-        draw.ellipse(
-            (
-                x - sample_radius,
-                y - sample_radius,
-                x + sample_radius,
-                y + sample_radius,
-            ),
-            fill=fill,
-            outline=outline,
-            width=max(1, round(2 * weight)),
-        )
+            sample_intensity = round(intensity * 0.65)
+        for offset_y in range(-sample_radius, sample_radius + 1):
+            point_y = layer_y + offset_y
+            if point_y < 0 or point_y >= layer_height:
+                continue
+            for offset_x in range(-sample_radius, sample_radius + 1):
+                if offset_x * offset_x + offset_y * offset_y > sample_radius * sample_radius:
+                    continue
+                point_x = layer_x + offset_x
+                if point_x < 0 or point_x >= layer_width:
+                    continue
+                index = point_y * layer_width + point_x
+                values[index] = min(255, values[index] + sample_intensity)
+
+    blur_radius = max(3, round(7 * scale))
+    red = Image.frombytes("L", layer_size, bytes(red_values))
+    green = Image.frombytes("L", layer_size, bytes(green_values))
+    red = red.filter(ImageFilter.GaussianBlur(blur_radius))
+    green = green.filter(ImageFilter.GaussianBlur(blur_radius))
+
+    overlay = Image.new("RGBA", layer_size, (0, 0, 0, 0))
+    red_pixels = red.load()
+    green_pixels = green.load()
+    overlay_pixels = overlay.load()
+    for y in range(layer_height):
+        for x in range(layer_width):
+            red_value = red_pixels[x, y]
+            green_value = green_pixels[x, y]
+            value = max(red_value, green_value)
+            if value < 4:
+                continue
+            alpha = min(115, round(value * 0.75))
+            if red_value >= green_value:
+                overlay_pixels[x, y] = (235, 38, 38, alpha)
+            else:
+                overlay_pixels[x, y] = (30, 180, 92, round(alpha * 0.7))
+
+    overlay = overlay.resize((image_width, image_height), Image.Resampling.BICUBIC)
+    image.paste(Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB"))
 
 
 def _sample_datetime(sample: dict[str, Any]):
