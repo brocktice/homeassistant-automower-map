@@ -580,13 +580,13 @@ def _render_png(
         )
         if intersection is None:
             continue
-        crop = (
-            intersection[0] - box[0],
-            intersection[1] - box[1],
-            intersection[2] - box[0],
-            intersection[3] - box[1],
+        source_crop = _source_crop_for_intersection(tile.size, box, intersection)
+        visible_width = max(1, intersection[2] - intersection[0])
+        visible_height = max(1, intersection[3] - intersection[1])
+        image.paste(
+            tile.crop(source_crop).resize((visible_width, visible_height)),
+            (intersection[0], intersection[1]),
         )
-        image.paste(tile.crop(crop), (intersection[0], intersection[1]))
 
     if heatmap_samples:
         _apply_heatmap(
@@ -793,6 +793,30 @@ def _intersect_rect(
     if right <= left or bottom <= top:
         return None
     return left, top, right, bottom
+
+
+def _source_crop_for_intersection(
+    source_size: tuple[int, int],
+    projected_box: tuple[int, int, int, int],
+    intersection: tuple[int, int, int, int],
+) -> tuple[int, int, int, int]:
+    """Map a visible projected tile rectangle back to source tile pixels."""
+    source_width, source_height = source_size
+    box_left, box_top, box_width, box_height = projected_box
+    crop_left = round((intersection[0] - box_left) / box_width * source_width)
+    crop_top = round((intersection[1] - box_top) / box_height * source_height)
+    crop_right = round((intersection[2] - box_left) / box_width * source_width)
+    crop_bottom = round((intersection[3] - box_top) / box_height * source_height)
+    crop_left = max(0, min(source_width - 1, crop_left))
+    crop_top = max(0, min(source_height - 1, crop_top))
+    crop_right = max(crop_left + 1, min(source_width, crop_right))
+    crop_bottom = max(crop_top + 1, min(source_height, crop_bottom))
+    return (
+        crop_left,
+        crop_top,
+        crop_right,
+        crop_bottom,
+    )
 
 
 def _lat_lon_bounds(bounds: dict[str, float]) -> dict[str, float]:
