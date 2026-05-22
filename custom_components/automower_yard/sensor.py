@@ -21,6 +21,13 @@ from .const import (
     ATTR_YARD_ZONES,
 )
 from .coordinator import AutomowerYardCoordinator
+from .cutting_height import (
+    ATTR_CUTTING_HEIGHT_CM,
+    ATTR_CUTTING_HEIGHT_IN,
+    ATTR_CUTTING_HEIGHT_SETTING,
+    cutting_height_cm,
+    cutting_height_in,
+)
 from .entity import AutomowerYardEntity
 
 
@@ -214,6 +221,8 @@ class AutomowerCuttingHeightSensor(AutomowerYardEntity, SensorEntity):
     """Mower cutting height setting sensor."""
 
     _attr_name = "Cutting Height"
+    _attr_device_class = SensorDeviceClass.DISTANCE
+    _attr_native_unit_of_measurement = UnitOfLength.CENTIMETERS
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, coordinator: AutomowerYardCoordinator, mower_id: str) -> None:
@@ -222,8 +231,29 @@ class AutomowerCuttingHeightSensor(AutomowerYardEntity, SensorEntity):
         self._attr_unique_id = f"{mower_id}_cutting_height"
 
     @property
-    def native_value(self) -> int | None:
-        """Return cutting height setting."""
+    def native_value(self) -> float | None:
+        """Return approximate cutting height in centimeters."""
+        return cutting_height_cm(self._cutting_height_setting, self.mower_model)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return cutting height attributes."""
+        setting = self._cutting_height_setting
+        return {
+            **super().extra_state_attributes,
+            ATTR_CUTTING_HEIGHT_SETTING: setting,
+            ATTR_CUTTING_HEIGHT_CM: cutting_height_cm(setting, self.mower_model),
+            ATTR_CUTTING_HEIGHT_IN: cutting_height_in(setting, self.mower_model),
+        }
+
+    @property
+    def mower_model(self) -> str | None:
+        """Return mower model."""
+        return (self.attributes.get("system") or {}).get("model")
+
+    @property
+    def _cutting_height_setting(self) -> int | None:
+        """Return raw cutting height setting."""
         return _coerce_int((self.attributes.get("settings") or {}).get("cuttingHeight"))
 
 
