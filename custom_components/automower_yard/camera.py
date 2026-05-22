@@ -599,6 +599,7 @@ def _render_png(
             top_offset,
             y_base,
         )
+        draw = ImageDraw.Draw(image, "RGBA")
 
     if show_zones:
         label_font = _font(8, text_scale)
@@ -681,7 +682,15 @@ def _apply_heatmap(
     red_values = [0] * (layer_width * layer_height)
     green_values = [0] * (layer_width * layer_height)
     project = _projector(bounds, image_width, image_height, top_offset, y_base)
-    sample_radius = max(3, round(5 * scale))
+    sample_radius = max(
+        8,
+        min(
+            80,
+            round(
+                _radius_px(8, bounds, image_width, image_height, top_offset) * scale
+            ),
+        ),
+    )
 
     for sample in samples:
         latitude = _coerce_float(sample.get("latitude"))
@@ -715,11 +724,21 @@ def _apply_heatmap(
                 index = point_y * layer_width + point_x
                 values[index] = min(255, values[index] + sample_intensity)
 
-    blur_radius = max(4, round(9 * scale))
-    red = Image.frombytes("L", layer_size, bytes(red_values))
-    green = Image.frombytes("L", layer_size, bytes(green_values))
-    red = red.filter(ImageFilter.GaussianBlur(blur_radius))
-    green = green.filter(ImageFilter.GaussianBlur(blur_radius))
+    blur_radius = max(
+        8,
+        min(
+            100,
+            round(
+                _radius_px(12, bounds, image_width, image_height, top_offset) * scale
+            ),
+        ),
+    )
+    red = Image.frombytes("L", layer_size, bytes(red_values)).filter(
+        ImageFilter.GaussianBlur(blur_radius)
+    )
+    green = Image.frombytes("L", layer_size, bytes(green_values)).filter(
+        ImageFilter.GaussianBlur(blur_radius)
+    )
 
     overlay = Image.new("RGBA", layer_size, (0, 0, 0, 0))
     red_pixels = red.load()
