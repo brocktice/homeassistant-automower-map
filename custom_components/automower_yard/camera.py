@@ -257,7 +257,8 @@ class AutomowerYardHeatmapCamera(AutomowerYardMapCamera):
             if _coerce_float(sample.get("latitude")) is not None
             and _coerce_float(sample.get("longitude")) is not None
         ]
-        points = _collect_points(zones, mower_point) + sample_points
+        base_points = _collect_points(zones, mower_point)
+        points = base_points or sample_points
         if not points:
             return _empty_svg("No mower position, yard zones, or heatmap samples available").encode()
 
