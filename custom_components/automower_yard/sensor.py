@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import PERCENTAGE, UnitOfLength, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -36,6 +37,77 @@ async def async_setup_entry(
             [
                 AutomowerStatusSensor(coordinator, mower_id),
                 AutomowerYardZoneSensor(coordinator, mower_id),
+                AutomowerBatterySensor(coordinator, mower_id),
+                AutomowerRemainingChargingTimeSensor(coordinator, mower_id),
+                AutomowerCuttingHeightSensor(coordinator, mower_id),
+                AutomowerStatisticSensor(
+                    coordinator,
+                    mower_id,
+                    "Charging Cycles",
+                    "numberOfChargingCycles",
+                    "charging_cycles",
+                ),
+                AutomowerStatisticSensor(
+                    coordinator,
+                    mower_id,
+                    "Collisions",
+                    "numberOfCollisions",
+                    "collisions",
+                ),
+                AutomowerStatisticSensor(
+                    coordinator,
+                    mower_id,
+                    "Total Charging Time",
+                    "totalChargingTime",
+                    "total_charging_time",
+                    SensorDeviceClass.DURATION,
+                    UnitOfTime.SECONDS,
+                ),
+                AutomowerStatisticSensor(
+                    coordinator,
+                    mower_id,
+                    "Total Cutting Time",
+                    "totalCuttingTime",
+                    "total_cutting_time",
+                    SensorDeviceClass.DURATION,
+                    UnitOfTime.SECONDS,
+                ),
+                AutomowerStatisticSensor(
+                    coordinator,
+                    mower_id,
+                    "Total Running Time",
+                    "totalRunningTime",
+                    "total_running_time",
+                    SensorDeviceClass.DURATION,
+                    UnitOfTime.SECONDS,
+                ),
+                AutomowerStatisticSensor(
+                    coordinator,
+                    mower_id,
+                    "Total Searching Time",
+                    "totalSearchingTime",
+                    "total_searching_time",
+                    SensorDeviceClass.DURATION,
+                    UnitOfTime.SECONDS,
+                ),
+                AutomowerStatisticSensor(
+                    coordinator,
+                    mower_id,
+                    "Total Drive Distance",
+                    "totalDriveDistance",
+                    "total_drive_distance",
+                    SensorDeviceClass.DISTANCE,
+                    UnitOfLength.METERS,
+                ),
+                AutomowerStatisticSensor(
+                    coordinator,
+                    mower_id,
+                    "Uptime",
+                    "upTime",
+                    "uptime",
+                    SensorDeviceClass.DURATION,
+                    UnitOfTime.SECONDS,
+                ),
             ]
         )
     async_add_entities(entities)
@@ -98,6 +170,94 @@ class AutomowerYardZoneSensor(AutomowerYardEntity, SensorEntity):
         }
 
 
+class AutomowerBatterySensor(AutomowerYardEntity, SensorEntity):
+    """Mower battery percentage sensor."""
+
+    _attr_name = "Battery"
+    _attr_device_class = SensorDeviceClass.BATTERY
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator: AutomowerYardCoordinator, mower_id: str) -> None:
+        """Initialize sensor."""
+        super().__init__(coordinator, mower_id)
+        self._attr_unique_id = f"{mower_id}_battery"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return battery percentage."""
+        return _coerce_int((self.attributes.get("battery") or {}).get("batteryPercent"))
+
+
+class AutomowerRemainingChargingTimeSensor(AutomowerYardEntity, SensorEntity):
+    """Mower remaining charging time sensor."""
+
+    _attr_name = "Remaining Charging Time"
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator: AutomowerYardCoordinator, mower_id: str) -> None:
+        """Initialize sensor."""
+        super().__init__(coordinator, mower_id)
+        self._attr_unique_id = f"{mower_id}_remaining_charging_time"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return remaining charging time in minutes."""
+        return _coerce_int(
+            (self.attributes.get("battery") or {}).get("remainingChargingTime")
+        )
+
+
+class AutomowerCuttingHeightSensor(AutomowerYardEntity, SensorEntity):
+    """Mower cutting height setting sensor."""
+
+    _attr_name = "Cutting Height"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator: AutomowerYardCoordinator, mower_id: str) -> None:
+        """Initialize sensor."""
+        super().__init__(coordinator, mower_id)
+        self._attr_unique_id = f"{mower_id}_cutting_height"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return cutting height setting."""
+        return _coerce_int((self.attributes.get("settings") or {}).get("cuttingHeight"))
+
+
+class AutomowerStatisticSensor(AutomowerYardEntity, SensorEntity):
+    """Mower statistics sensor."""
+
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+
+    def __init__(
+        self,
+        coordinator: AutomowerYardCoordinator,
+        mower_id: str,
+        name: str,
+        statistic_key: str,
+        unique_suffix: str,
+        device_class: SensorDeviceClass | None = None,
+        unit: str | None = None,
+    ) -> None:
+        """Initialize sensor."""
+        super().__init__(coordinator, mower_id)
+        self._attr_name = name
+        self._statistic_key = statistic_key
+        self._attr_unique_id = f"{mower_id}_{unique_suffix}"
+        self._attr_device_class = device_class
+        self._attr_native_unit_of_measurement = unit
+
+    @property
+    def native_value(self) -> int | None:
+        """Return statistic value."""
+        return _coerce_int(
+            (self.attributes.get("statistics") or {}).get(self._statistic_key)
+        )
+
+
 def _latest_position(attributes: dict[str, Any]) -> tuple[float | None, float | None]:
     positions = attributes.get("positions")
     if not isinstance(positions, list) or not positions:
@@ -106,3 +266,10 @@ def _latest_position(attributes: dict[str, Any]) -> tuple[float | None, float | 
         return float(positions[0]["latitude"]), float(positions[0]["longitude"])
     except (KeyError, TypeError, ValueError):
         return None, None
+
+
+def _coerce_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

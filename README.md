@@ -10,6 +10,7 @@ position updates, yard-zone awareness, and a visual zone editor.
 - `binary_sensor`: one `In <zone>` entity per configured yard zone for automations.
 - `sensor`: mower status.
 - `sensor`: named yard zone, derived from configured circle or polygon zones.
+- `sensor`: battery percentage, charging time, cutting height, and mower statistics.
 - `camera`: read-only satellite yard map with zone overlays and mower marker.
 - `camera`: square mower-centered yard map detail view for notifications.
 - `camera`: aging satellite heatmap that fades old stuck/ok mower samples.
