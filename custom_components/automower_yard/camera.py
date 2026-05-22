@@ -10,7 +10,7 @@ import math
 from typing import Any
 
 from aiohttp import ClientError
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
 from homeassistant.components.camera import Camera
 from homeassistant.config_entries import ConfigEntry
@@ -22,6 +22,7 @@ from homeassistant.util import dt as dt_util
 from .const import ATTR_HEATMAP_MAX_AGE_DAYS, ATTR_HEATMAP_SAMPLE_COUNT, ATTR_YARD_ZONES
 from .coordinator import HEATMAP_MAX_AGE, AutomowerYardCoordinator
 from .entity import AutomowerYardEntity
+from .heatmap import apply_signed_evidence_heatmap
 
 WIDTH = 1600
 HEIGHT = 900
@@ -673,14 +674,11 @@ def _apply_heatmap(
     top_offset: int,
     y_base: int,
 ) -> None:
-    """Composite an age-decayed smooth stuck/ok heatmap over the satellite map."""
+    """Composite an age-decayed signed evidence heatmap over the satellite map."""
     now = dt_util.utcnow()
     max_age_seconds = HEATMAP_MAX_AGE.total_seconds()
     scale = 0.5
     layer_size = (round(image_width * scale), round(image_height * scale))
-    layer_width, layer_height = layer_size
-    red_values = [0] * (layer_width * layer_height)
-    green_values = [0] * (layer_width * layer_height)
     project = _projector(bounds, image_width, image_height, top_offset, y_base)
     sample_radius = max(
         8,
@@ -691,6 +689,7 @@ def _apply_heatmap(
             ),
         ),
     )
+    evidence_points = []
 
     for sample in samples:
         latitude = _coerce_float(sample.get("latitude"))
@@ -705,60 +704,10 @@ def _apply_heatmap(
         x, y = project(_to_xy(latitude, longitude, bounds))
         layer_x = round(x * scale)
         layer_y = round(y * scale)
-        intensity = round(85 + 170 * weight)
-        values = red_values if sample.get("stuck") else green_values
-        if sample.get("stuck"):
-            sample_intensity = intensity
-        else:
-            sample_intensity = round(intensity * 0.9)
-        for offset_y in range(-sample_radius, sample_radius + 1):
-            point_y = layer_y + offset_y
-            if point_y < 0 or point_y >= layer_height:
-                continue
-            for offset_x in range(-sample_radius, sample_radius + 1):
-                if offset_x * offset_x + offset_y * offset_y > sample_radius * sample_radius:
-                    continue
-                point_x = layer_x + offset_x
-                if point_x < 0 or point_x >= layer_width:
-                    continue
-                index = point_y * layer_width + point_x
-                values[index] = min(255, values[index] + sample_intensity)
+        sample_value = -1.0 if sample.get("stuck") else 1.0
+        evidence_points.append((layer_x, layer_y, sample_value, weight))
 
-    blur_radius = max(
-        8,
-        min(
-            100,
-            round(
-                _radius_px(12, bounds, image_width, image_height, top_offset) * scale
-            ),
-        ),
-    )
-    red = Image.frombytes("L", layer_size, bytes(red_values)).filter(
-        ImageFilter.GaussianBlur(blur_radius)
-    )
-    green = Image.frombytes("L", layer_size, bytes(green_values)).filter(
-        ImageFilter.GaussianBlur(blur_radius)
-    )
-
-    overlay = Image.new("RGBA", layer_size, (0, 0, 0, 0))
-    red_pixels = red.load()
-    green_pixels = green.load()
-    overlay_pixels = overlay.load()
-    for y in range(layer_height):
-        for x in range(layer_width):
-            red_value = red_pixels[x, y]
-            green_value = green_pixels[x, y]
-            value = max(red_value, green_value)
-            if value < 3:
-                continue
-            alpha = min(185, round(value * 1.15))
-            if red_value >= green_value:
-                overlay_pixels[x, y] = (235, 38, 38, alpha)
-            else:
-                overlay_pixels[x, y] = (30, 180, 92, round(alpha * 0.9))
-
-    overlay = overlay.resize((image_width, image_height), Image.Resampling.BICUBIC)
-    image.paste(Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB"))
+    apply_signed_evidence_heatmap(image, layer_size, evidence_points, sample_radius)
 
 
 def _sample_datetime(sample: dict[str, Any]):
