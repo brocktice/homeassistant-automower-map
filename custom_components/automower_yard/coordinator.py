@@ -15,7 +15,16 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .api import AutomowerApiClient, AutomowerApiError
-from .const import CONF_APP_KEY, CONF_APP_SECRET, CONF_ZONES, DEFAULT_ZONES, DOMAIN
+from .const import (
+    CONF_APP_KEY,
+    CONF_APP_SECRET,
+    CONF_CUTTING_HEIGHT_UNITS,
+    CONF_ZONES,
+    CUTTING_HEIGHT_UNIT_CM,
+    CUTTING_HEIGHT_UNIT_IN,
+    DEFAULT_ZONES,
+    DOMAIN,
+)
 from .yard import find_zones, parse_zones
 
 _LOGGER = logging.getLogger(__name__)
@@ -79,6 +88,38 @@ class AutomowerYardCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]])
         self._zones = parse_zones(
             self.config_entry.options.get(CONF_ZONES, DEFAULT_ZONES)
         )
+
+    def cutting_height_unit(self, mower_id: str) -> str:
+        """Return the preferred cutting height unit for a mower."""
+        units = self.config_entry.options.get(CONF_CUTTING_HEIGHT_UNITS, {})
+        if not isinstance(units, dict):
+            return CUTTING_HEIGHT_UNIT_CM
+        unit = units.get(mower_id)
+        if unit == CUTTING_HEIGHT_UNIT_IN:
+            return CUTTING_HEIGHT_UNIT_IN
+        return CUTTING_HEIGHT_UNIT_CM
+
+    async def async_set_cutting_height_unit(self, mower_id: str, unit: str) -> None:
+        """Persist the preferred cutting height unit for a mower."""
+        options = dict(self.config_entry.options)
+        current_units = options.get(CONF_CUTTING_HEIGHT_UNITS, {})
+        units = dict(current_units) if isinstance(current_units, dict) else {}
+
+        if unit == CUTTING_HEIGHT_UNIT_CM:
+            units.pop(mower_id, None)
+        else:
+            units[mower_id] = CUTTING_HEIGHT_UNIT_IN
+
+        if units:
+            options[CONF_CUTTING_HEIGHT_UNITS] = units
+        else:
+            options.pop(CONF_CUTTING_HEIGHT_UNITS, None)
+
+        self.hass.config_entries.async_update_entry(
+            self.config_entry,
+            options=options,
+        )
+        self.async_update_listeners()
 
     @property
     def zone_names(self) -> list[str]:

@@ -6,9 +6,13 @@ DOMAIN = "automower_yard"
 
 CONF_APP_KEY = "app_key"
 CONF_APP_SECRET = "app_secret"
+CONF_CUTTING_HEIGHT_UNITS = "cutting_height_units"
 CONF_ZONES = "zones_json"
 
-PLATFORMS = ["binary_sensor", "camera", "device_tracker", "sensor"]
+CUTTING_HEIGHT_UNIT_CM = "cm"
+CUTTING_HEIGHT_UNIT_IN = "in"
+
+PLATFORMS = ["binary_sensor", "camera", "device_tracker", "sensor", "switch"]
 
 AUTH_URL = "https://api.authentication.husqvarnagroup.dev/v1/oauth2/token"
 REST_BASE_URL = "https://api.amc.husqvarna.dev/v1"

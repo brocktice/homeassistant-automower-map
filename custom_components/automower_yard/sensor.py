@@ -19,6 +19,7 @@ from .const import (
     ATTR_STATE,
     ATTR_WEBSOCKET_CONNECTED,
     ATTR_YARD_ZONES,
+    CUTTING_HEIGHT_UNIT_IN,
 )
 from .coordinator import AutomowerYardCoordinator
 from .cutting_height import (
@@ -222,7 +223,6 @@ class AutomowerCuttingHeightSensor(AutomowerYardEntity, SensorEntity):
 
     _attr_name = "Cutting Height"
     _attr_device_class = SensorDeviceClass.DISTANCE
-    _attr_native_unit_of_measurement = UnitOfLength.CENTIMETERS
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, coordinator: AutomowerYardCoordinator, mower_id: str) -> None:
@@ -232,8 +232,23 @@ class AutomowerCuttingHeightSensor(AutomowerYardEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
-        """Return approximate cutting height in centimeters."""
+        """Return approximate cutting height in the configured unit."""
+        if (
+            self.coordinator.cutting_height_unit(self.mower_id)
+            == CUTTING_HEIGHT_UNIT_IN
+        ):
+            return cutting_height_in(self._cutting_height_setting, self.mower_model)
         return cutting_height_cm(self._cutting_height_setting, self.mower_model)
+
+    @property
+    def native_unit_of_measurement(self) -> str:
+        """Return the configured cutting height unit."""
+        if (
+            self.coordinator.cutting_height_unit(self.mower_id)
+            == CUTTING_HEIGHT_UNIT_IN
+        ):
+            return UnitOfLength.INCHES
+        return UnitOfLength.CENTIMETERS
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

@@ -70,7 +70,10 @@ class AutomowerYardOptionsFlow(config_entries.OptionsFlow):
     ) -> config_entries.ConfigFlowResult:
         """Manage options."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, **user_input},
+            )
 
         return self.async_show_form(
             step_id="init",
