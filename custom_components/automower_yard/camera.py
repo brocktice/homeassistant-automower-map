@@ -104,6 +104,7 @@ class AutomowerYardMapCamera(AutomowerYardEntity, Camera):
             112,
             TEXT_SCALE,
             [],
+            True,
         )
 
     @property
@@ -218,6 +219,7 @@ class AutomowerYardDetailMapCamera(AutomowerYardMapCamera):
             0,
             DETAIL_TEXT_SCALE,
             [],
+            True,
         )
 
 
@@ -275,6 +277,7 @@ class AutomowerYardHeatmapCamera(AutomowerYardMapCamera):
             112,
             TEXT_SCALE,
             samples,
+            False,
         )
 
 
@@ -549,6 +552,7 @@ def _render_png(
     y_base: int = 112,
     text_scale: float = TEXT_SCALE,
     heatmap_samples: list[dict[str, Any]] | None = None,
+    show_zones: bool = True,
 ) -> bytes:
     image = Image.new("RGB", (image_width, image_height), "#f4f6f5")
     draw = ImageDraw.Draw(image, "RGBA")
@@ -595,39 +599,48 @@ def _render_png(
             y_base,
         )
 
-    label_font = _font(8, text_scale)
+    if show_zones:
+        label_font = _font(8, text_scale)
+        labels: list[tuple[str, float, float]] = []
+        for index, zone in enumerate(zones):
+            color = _hex_to_rgba(_zone_color(index), 72)
+            outline = _hex_to_rgba(_zone_color(index), 255)
+            if _is_circle(zone):
+                center = _to_xy(float(zone["center"][0]), float(zone["center"][1]), bounds)
+                x, y = project(center)
+                radius = max(
+                    4,
+                    _radius_px(
+                        float(zone["radius_m"]),
+                        bounds,
+                        image_width,
+                        image_height,
+                        top_offset,
+                    ),
+                )
+                draw.ellipse(
+                    (x - radius, y - radius, x + radius, y + radius),
+                    fill=color,
+                    outline=outline,
+                    width=5,
+                )
+                labels.append((str(zone["name"]), x, y))
+            elif isinstance(zone.get("polygon"), list):
+                points = [
+                    project(_to_xy(float(point[0]), float(point[1]), bounds))
+                    for point in zone["polygon"]
+                    if isinstance(point, list) and len(point) == 2
+                ]
+                if len(points) < 3:
+                    continue
+                draw.polygon(points, fill=color)
+                draw.line([*points, points[0]], fill=outline, width=5)
+                cx = sum(x for x, _ in points) / len(points)
+                cy = sum(y for _, y in points) / len(points)
+                labels.append((str(zone["name"]), cx, cy))
 
-    labels: list[tuple[str, float, float]] = []
-    for index, zone in enumerate(zones):
-        color = _hex_to_rgba(_zone_color(index), 72)
-        outline = _hex_to_rgba(_zone_color(index), 255)
-        if _is_circle(zone):
-            center = _to_xy(float(zone["center"][0]), float(zone["center"][1]), bounds)
-            x, y = project(center)
-            radius = max(
-                4,
-                _radius_px(
-                    float(zone["radius_m"]), bounds, image_width, image_height, top_offset
-                ),
-            )
-            draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=color, outline=outline, width=5)
-            labels.append((str(zone["name"]), x, y))
-        elif isinstance(zone.get("polygon"), list):
-            points = [
-                project(_to_xy(float(point[0]), float(point[1]), bounds))
-                for point in zone["polygon"]
-                if isinstance(point, list) and len(point) == 2
-            ]
-            if len(points) < 3:
-                continue
-            draw.polygon(points, fill=color)
-            draw.line([*points, points[0]], fill=outline, width=5)
-            cx = sum(x for x, _ in points) / len(points)
-            cy = sum(y for _, y in points) / len(points)
-            labels.append((str(zone["name"]), cx, cy))
-
-    for text, x, y in labels:
-        _draw_label(draw, text, x, y, label_font, text_scale)
+        for text, x, y in labels:
+            _draw_label(draw, text, x, y, label_font, text_scale)
 
     if mower_point:
         x, y = project(_to_xy(mower_point[0], mower_point[1], bounds))
