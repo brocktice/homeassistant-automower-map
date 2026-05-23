@@ -15,9 +15,9 @@ def _load_module(name: str, path: str) -> ModuleType:
 
 
 cutting_height = _load_module(
-    "cutting_height", "custom_components/automower_yard/cutting_height.py"
+    "cutting_height", "custom_components/robot_mower_yard/cutting_height.py"
 )
-yard = _load_module("yard", "custom_components/automower_yard/yard.py")
+yard = _load_module("yard", "custom_components/robot_mower_yard/yard.py")
 cutting_height_cm = cutting_height.cutting_height_cm
 cutting_height_in = cutting_height.cutting_height_in
 find_zone = yard.find_zone

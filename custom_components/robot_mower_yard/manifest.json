@@ -1,0 +1,15 @@
+{
+  "domain": "robot_mower_yard",
+  "name": "Robot Mower Yard",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/brocktice/homeassistant-automower-map",
+  "integration_type": "hub",
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/brocktice/homeassistant-automower-map/issues",
+  "requirements": [
+    "navimow-sdk>=0.1.2"
+  ],
+  "version": "0.2.0"
+}

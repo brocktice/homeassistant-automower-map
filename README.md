@@ -1,66 +1,74 @@
-# Automower Yard
+# Robot Mower Yard
 
-Home Assistant custom integration for Husqvarna Automower Connect with live
-position updates, yard-zone awareness, and a visual zone editor.
+Home Assistant custom integration for managing multiple robot mowers in one
+yard. It can aggregate Husqvarna Automower, Segway Navimow, mock, and existing
+Home Assistant entity providers into shared yard status, zones, maps, and
+heatmaps.
 
-## What it exposes
+This replaces the earlier Automower-only integration.
 
-- `device_tracker`: mower GPS position for the Home Assistant map.
-- `binary_sensor`: stuck/problem state based on mower state, activity, or error code.
-- `binary_sensor`: one `In <zone>` entity per configured yard zone for automations.
-- `sensor`: mower status.
-- `sensor`: named yard zone, derived from configured circle or polygon zones.
-- `sensor`: battery percentage, charging time, cutting height, and mower statistics.
-- `camera`: read-only satellite yard map with zone overlays and mower marker.
-- `camera`: square mower-centered yard map detail view for notifications.
-- `camera`: aging satellite heatmap that fades old stuck/ok mower samples.
-- Home Assistant sidebar panel: visual zone editor with satellite imagery.
+## What It Exposes
 
-The integration fetches the initial mower state from the Automower Connect REST
-API, then keeps a Husqvarna WebSocket open for timely status and position
-events.
+- Yard/location config entries that group one or more mower providers.
+- Provider config entries for Husqvarna Automower, Navimow, existing HA
+  entities, and mock data.
+- `device_tracker`: mower position for the Home Assistant map.
+- `lawn_mower`: mower controls where the provider supports them.
+- `binary_sensor`: mower problem state and one `In <zone>` entity per configured
+  yard zone.
+- `sensor`: mower status, yard zone, battery, cutting height, and provider
+  statistics where available.
+- `camera`: yard overview, yard heatmap, and per-mower snapshot cameras.
+- `switch`: provider-supported mower switches where available.
+- Sidebar panel: mower status, live zone map, live signed-evidence heatmap, zone
+  editor link, and Navimow base-station/calibration settings.
 
-When a mower is inside multiple zones, the `yard_zones` attribute lists matches
-from smallest zone to largest zone. The displayed yard-zone state joins them in
-that order.
+## Provider Notes
 
-The heatmap stores throttled mower position samples in Home Assistant storage.
-Recent stuck/problem samples render red, normal samples render green, and both
-fade out over time so fixed trouble spots cool down automatically.
-
-## Husqvarna setup
+### Husqvarna Automower
 
 Create an application in the Husqvarna Developer Portal and connect it to:
 
 - Authentication API
 - Automower Connect API
 
-Use that application's key and secret when adding the integration in Home
-Assistant.
+Use that application's key and secret when adding the Husqvarna provider.
+
+### Segway Navimow
+
+Add a Navimow provider and sign in through the integration flow. Navimow
+positions can be calibrated in provider settings:
+
+- Base station latitude/longitude
+- North/east position offsets in meters
+
+The offsets are applied to mower positions, the base station marker, and
+displayed heatmap samples.
 
 ## Install
 
-### HACS custom repository
+### HACS Custom Repository
 
 1. In HACS, open **Integrations**.
 2. Use the three-dot menu and choose **Custom repositories**.
 3. Add this repository URL as category **Integration**.
-4. Install **Automower Yard**.
+4. Install **Robot Mower Yard**.
 5. Restart Home Assistant.
-6. Add the integration from **Settings > Devices & services**.
+6. Add a **Robot Mower Yard** yard/location first.
+7. Add one or more provider entries and attach them to that yard.
 
-### Manual install
+### Manual Install
 
-Copy `custom_components/automower_yard` to your Home Assistant
+Copy `custom_components/robot_mower_yard` to your Home Assistant
 `custom_components` directory, restart Home Assistant, then add
-**Automower Yard** from Devices & services.
+**Robot Mower Yard** from Devices & services.
 
 ## Yard Zones
 
-After setup, open the **Automower Yard** sidebar panel to draw zones on a
-satellite map and save them directly to Home Assistant.
+Zones are edited from the yard entry's Configure screen or from the sidebar's
+zone editor link. They are stored as JSON in the yard entry options.
 
-Zones are saved as JSON in the integration options. Example:
+Example:
 
 ```json
 [
@@ -81,84 +89,55 @@ Zones are saved as JSON in the integration options. Example:
 ]
 ```
 
-Coordinates are `[latitude, longitude]`.
+Coordinates are `[latitude, longitude]`. When a mower is inside multiple zones,
+the `yard_zones` attribute lists matches from smallest zone to largest zone.
+
+## Heatmaps
+
+The integration stores throttled mower position samples in Home Assistant
+storage. The sidebar heatmap renders a signed evidence field:
+
+- Green: normal/good samples
+- Red: problem samples
+- Yellow: mixed or weak evidence
+
+The heatmap is live, zoomable, and shared across mowers in the selected yard.
 
 ## Problem Notification Blueprint
 
 This repo includes a Home Assistant blueprint at:
 
 ```text
-blueprints/automation/automower_yard/mower_problem_notification.yaml
+blueprints/automation/robot_mower_yard/mower_problem_notification.yaml
 ```
 
-It triggers when the mower stuck/problem binary sensor turns on, snapshots a map
-camera, and sends a notification with mower state, activity, yard-zone text, and
-the map image. Use `Yard Map Detail` for a square mower-centered notification
-image, or `Yard Map` for the full yard.
+It selects a Robot Mower Yard mower device, infers that mower's problem/status/
+yard-zone/battery/snapshot-camera entities, waits for the problem state to
+persist for 60 seconds, snapshots the mower camera, and sends a notification.
 
 Inputs:
 
-- Problem sensor, e.g. `binary_sensor.mr_snippers_stuck`
-- Status sensor, e.g. `sensor.mr_snippers_status`
-- Yard zone sensor, e.g. `sensor.mr_snippers_yard_zone`
-- Notification map camera, e.g. `camera.mr_snippers_yard_map_detail`
-- Mobile App notification devices or notify services, e.g. `notify.mobile_app_your_phone`
+- Mower device
+- Mobile App notification devices or notify services
+- Optional notification title/message/open URL
 
 If HACS does not install the blueprint automatically, copy the blueprint file to:
 
 ```text
-/config/blueprints/automation/automower_yard/mower_problem_notification.yaml
+/config/blueprints/automation/robot_mower_yard/mower_problem_notification.yaml
 ```
 
-## Development
-
-### Standalone zone editor
-
-The integration includes the editor as a Home Assistant sidebar panel. For local
-development, the same editor can be served outside Home Assistant:
-
-```bash
-python3 -m http.server 8090 --bind 0.0.0.0 --directory tools
-```
-
-Then open `http://<vm-ip>:8090/zone_editor.html`. You can optionally seed the
-map center from a mower coordinate:
-
-```text
-http://<vm-ip>:8090/zone_editor.html?lat=44.000001&lon=-93.000001
-```
-
-If you are using the disposable HA container from this README, generate a local
-latest-location file so the editor opens centered on the mower:
-
-```bash
-python3 scripts/update_zone_editor_location.py
-```
-
-### Smoke test credentials
-
-Before loading the integration in Home Assistant, you can verify that your
-Husqvarna app credentials return mower location data:
-
-```bash
-APPLICATION_KEY="..." APPLICATION_SECRET="..." \
-  python3 scripts/smoke_test_husqvarna.py
-```
-
-This uses only Python's standard library and prints each mower's status,
-position capability, and latest GPS coordinate if Husqvarna returns one.
-
-### Local Home Assistant test
+## Local Home Assistant Test
 
 Run a disposable Home Assistant Core container with this integration mounted:
 
 ```bash
-docker rm -f automower-yard-ha-test >/dev/null 2>&1 || true
-rm -rf /tmp/automower-yard-ha-test
-mkdir -p /tmp/automower-yard-ha-test
-docker run -d --name automower-yard-ha-test \
+docker rm -f robot-mower-yard-ha-test >/dev/null 2>&1 || true
+rm -rf /tmp/robot-mower-yard-ha-test
+mkdir -p /tmp/robot-mower-yard-ha-test
+docker run -d --name robot-mower-yard-ha-test \
   -p 8123:8123 \
-  -v /tmp/automower-yard-ha-test:/config \
+  -v /tmp/robot-mower-yard-ha-test:/config \
   -v "$PWD/custom_components:/config/custom_components:ro" \
   ghcr.io/home-assistant/home-assistant:stable
 ```
@@ -166,5 +145,5 @@ docker run -d --name automower-yard-ha-test \
 Then open <http://localhost:8123>. Stop it with:
 
 ```bash
-docker rm -f automower-yard-ha-test
+docker rm -f robot-mower-yard-ha-test
 ```

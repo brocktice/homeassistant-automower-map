@@ -1,0 +1,80 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Robot Mower Yard",
+        "description": "Add a yard/location first, then add mower providers to that yard.",
+        "data": {
+          "entry_kind": "Entry type"
+        }
+      },
+      "yard": {
+        "title": "Yard/location",
+        "description": "Create a yard that can aggregate one or more mower providers. Zones are setup-only data and can be changed later from this yard entry's Configure screen.",
+        "data": {
+          "yard_name": "Yard name",
+          "zones_json": "Zones JSON"
+        }
+      },
+      "provider": {
+        "title": "Mower provider",
+        "description": "Attach one mower data provider to an existing yard.",
+        "data": {
+          "yard_entry_id": "Yard",
+          "provider_type": "Provider"
+        }
+      },
+      "entity_provider": {
+        "title": "Existing HA entities",
+        "description": "Create one mower from existing Home Assistant entities. All entity fields are optional for this prototype.",
+        "data": {
+          "mower_name": "Mower name",
+          "tracker_entity": "Location tracker",
+          "status_entity": "Status entity",
+          "battery_entity": "Battery entity",
+          "problem_entity": "Problem entity"
+        }
+      },
+      "husqvarna_provider": {
+        "title": "Husqvarna Automower",
+        "description": "Prototype setup for a Husqvarna Automower provider. This validates the setup flow shape; API validation is not wired yet.",
+        "data": {
+          "app_key": "Application key",
+          "app_secret": "Application secret"
+        }
+      },
+      "navimow_provider": {
+        "title": "Navimow",
+        "description": "Sign in with Navimow to connect live mower data."
+      }
+    },
+    "abort": {
+      "already_configured": "This yard or provider is already configured.",
+      "no_yards": "Create a Robot Mower Yard location before adding a provider."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Yard setup",
+        "description": "Zones are maintained here rather than in the sidebar. They are expected to be edited rarely after initial setup.",
+        "data": {
+          "zones_json": "Zones JSON"
+        }
+      },
+      "navimow": {
+        "title": "Navimow provider setup",
+        "description": "Set the base station location if Navimow reports mower positions as relative x/y offsets.",
+        "data": {
+          "base_station_latitude": "Base station latitude",
+          "base_station_longitude": "Base station longitude",
+          "position_offset_north_m": "Position offset north (meters)",
+          "position_offset_east_m": "Position offset east (meters)"
+        }
+      }
+    },
+    "abort": {
+      "provider_options_not_supported": "Provider options are not implemented in this prototype."
+    }
+  }
+}
