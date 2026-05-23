@@ -1,0 +1,239 @@
+blueprint:
+  name: Robot Mower Yard - Problem notification with map
+  description: >
+    Send a mobile notification with the mower's current yard-zone description,
+    provider state, optional battery level, and a camera snapshot when any
+    Robot Mower Yard mower enters a problem/stuck state.
+  domain: automation
+  input:
+    mower_device:
+      name: Mower device
+      description: The Robot Mower Yard mower device. The matching Problem, Status, Yard Zone, Battery, and Snapshot camera entities are inferred automatically.
+      selector:
+        device:
+          integration: automower_yard
+    notify_devices:
+      name: Notification devices
+      description: Mobile App devices to notify. These only appear after the Home Assistant Companion App has connected to this Home Assistant instance.
+      default: []
+      selector:
+        device:
+          integration: mobile_app
+          multiple: true
+    notify_services:
+      name: Additional notify services
+      description: "Optional notify services to call, such as notify.mobile_app_phone or notify.family."
+      default: []
+      selector:
+        text:
+          multiple: true
+    notify_service:
+      name: Legacy fallback notify service
+      description: "Optional single notify service kept for existing automations. Prefer Additional notify services for new automations."
+      default: ""
+      selector:
+        text:
+    title:
+      name: Notification title
+      default: Robot mower needs attention
+      selector:
+        text:
+    message_prefix:
+      name: Message prefix
+      default: A robot mower is in a problem state.
+      selector:
+        text:
+    open_url:
+      name: Notification open URL
+      description: Optional URL opened when tapping the notification. Leave blank to open the snapshot image.
+      default: ""
+      selector:
+        text:
+
+mode: single
+
+trigger_variables:
+  mower_device: !input mower_device
+
+trigger:
+  - platform: template
+    value_template: >-
+      {% set problem_entity = device_entities(mower_device)
+        | select('match', '^binary_sensor\\..*_problem$')
+        | list
+        | first
+        | default('') %}
+      {{ problem_entity | length > 0 and is_state(problem_entity, 'on') }}
+    for:
+      seconds: 60
+
+variables:
+  mower_device: !input mower_device
+  notify_devices: !input notify_devices
+  notify_services: !input notify_services
+  notify_service: !input notify_service
+  notification_title: !input title
+  notification_prefix: !input message_prefix
+  open_url: !input open_url
+  problem_entity: >-
+    {{ device_entities(mower_device)
+      | select('match', '^binary_sensor\\..*_problem$')
+      | list
+      | first
+      | default('') }}
+  status_entity: >-
+    {{ device_entities(mower_device)
+      | select('match', '^sensor\\..*_status$')
+      | list
+      | first
+      | default('') }}
+  zone_entity: >-
+    {{ device_entities(mower_device)
+      | select('match', '^sensor\\..*_yard_zone$')
+      | list
+      | first
+      | default('') }}
+  battery_entity: >-
+    {{ device_entities(mower_device)
+      | select('match', '^sensor\\..*_battery$')
+      | list
+      | first
+      | default('') }}
+  camera_entity: >-
+    {{ device_entities(mower_device)
+      | select('match', '^camera\\..*_snapshot$')
+      | list
+      | first
+      | default('') }}
+  mower_name: "{{ state_attr(status_entity, 'friendly_name') or status_entity }}"
+  mower_provider: "{{ state_attr(status_entity, 'provider') or state_attr(problem_entity, 'provider') or 'unknown' }}"
+  mower_state: "{{ states(status_entity) }}"
+  mower_activity: "{{ state_attr(status_entity, 'activity') or state_attr(status_entity, 'mower_activity') or '' }}"
+  mower_error_code: "{{ state_attr(problem_entity, 'error_code') or state_attr(status_entity, 'error_code') }}"
+  mower_battery: >-
+    {% if battery_entity | length > 0 %}
+      {{ states(battery_entity) }}
+    {% else %}
+      {{ state_attr(status_entity, 'battery') or state_attr(status_entity, 'battery_percent') or '' }}
+    {% endif %}
+  mower_state_label: >-
+    {% set labels = {
+      'FATAL_ERROR': 'Needs attention',
+      'ERROR': 'Needs attention',
+      'STOPPED': 'Stopped',
+      'IN_OPERATION': 'In operation',
+      'PAUSED': 'Paused',
+      'RESTRICTED': 'Restricted',
+      'OFF': 'Off',
+      'UNKNOWN': 'Unknown',
+      'error': 'Needs attention',
+      'unknown': 'Unknown',
+      'mowing': 'Mowing',
+      'paused': 'Paused',
+      'docked': 'Docked',
+      'charging': 'Charging',
+      'returning': 'Returning',
+      'idle': 'Idle'
+    } %}
+    {{ labels.get(mower_state, mower_state | replace('_', ' ') | title) if mower_state not in ['unknown', 'Unknown', 'unavailable'] else 'unknown' }}
+  mower_activity_label: >-
+    {% set activity = mower_activity %}
+    {% set labels = {
+      'MOWING': 'Mowing',
+      'GOING_HOME': 'Going home',
+      'CHARGING': 'Charging',
+      'LEAVING': 'Leaving',
+      'PARKED_IN_CS': 'Parked at charger',
+      'STOPPED_IN_GARDEN': 'Stopped in yard',
+      'LIFTED': 'Lifted',
+      'NO_DRIVE': 'No drive',
+      'NOT_APPLICABLE': 'Not applicable',
+      'UNKNOWN': 'Unknown'
+    } %}
+    {{ labels.get(activity, activity | replace('_', ' ') | title) if activity not in ['', 'unknown', 'Unknown', 'unavailable'] else '' }}
+  zone_name: "{{ states(zone_entity) }}"
+  zone_list: "{{ state_attr(zone_entity, 'yard_zones') or [] }}"
+  latitude: "{{ state_attr(zone_entity, 'latitude') }}"
+  longitude: "{{ state_attr(zone_entity, 'longitude') }}"
+  snapshot_slug: "{{ status_entity | replace('.', '_') | replace('-', '_') }}"
+  snapshot_path: "/config/www/robot_mower_yard_{{ snapshot_slug }}_problem_map.png"
+  snapshot_url: "/local/robot_mower_yard_{{ snapshot_slug }}_problem_map.png"
+  notification_url: "{{ open_url if open_url | length > 0 else snapshot_url }}"
+  notification_message: >-
+    {{ notification_prefix }}
+    Mower: {{ mower_name }}.
+    Provider: {{ mower_provider }}.
+    Status: {{ mower_state_label }}.
+    {% if mower_activity_label | length > 0 %}
+    Activity: {{ mower_activity_label }}.
+    {% endif %}
+    {% if mower_error_code not in [none, '', 0, '0'] %}
+    Error code: {{ mower_error_code }}.
+    {% endif %}
+    {% if mower_battery not in [none, '', 'unknown', 'unavailable'] %}
+    Battery: {{ mower_battery }}%.
+    {% endif %}
+    Location: {{ zone_name if zone_name not in ['unknown', 'Unknown', 'unavailable'] else 'unknown yard zone' }}.
+    {% if zone_list | count > 1 %}
+    Matching zones: {{ zone_list | join(', ') }}.
+    {% endif %}
+    {% if latitude not in [none, '', 'unknown', 'unavailable'] and longitude not in [none, '', 'unknown', 'unavailable'] %}
+    Coordinates: {{ latitude }}, {{ longitude }}.
+    {% endif %}
+
+action:
+  - condition: template
+    alias: Selected mower device has a snapshot camera
+    value_template: "{{ camera_entity | length > 0 }}"
+  - service: camera.snapshot
+    target:
+      entity_id: "{{ camera_entity }}"
+    data:
+      filename: "{{ snapshot_path }}"
+  - delay:
+      seconds: 1
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ notify_devices | count > 0 }}"
+        sequence:
+          - repeat:
+              for_each: "{{ notify_devices }}"
+              sequence:
+                - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+                  data:
+                    title: "{{ notification_title }}"
+                    message: "{{ notification_message }}"
+                    data:
+                      image: "{{ snapshot_url }}"
+                      url: "{{ notification_url }}"
+                      clickAction: "{{ notification_url }}"
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ notify_services | count > 0 }}"
+        sequence:
+          - repeat:
+              for_each: "{{ notify_services }}"
+              sequence:
+                - service: "{{ repeat.item }}"
+                  data:
+                    title: "{{ notification_title }}"
+                    message: "{{ notification_message }}"
+                    data:
+                      image: "{{ snapshot_url }}"
+                      url: "{{ notification_url }}"
+                      clickAction: "{{ notification_url }}"
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ notify_services | count == 0 and notify_service | length > 0 }}"
+        sequence:
+          - service: "{{ notify_service }}"
+            data:
+              title: "{{ notification_title }}"
+              message: "{{ notification_message }}"
+              data:
+                image: "{{ snapshot_url }}"
+                url: "{{ notification_url }}"
+                clickAction: "{{ notification_url }}"

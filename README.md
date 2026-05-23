@@ -49,6 +49,11 @@ displayed heatmap samples.
 
 ### HACS Custom Repository
 
+Existing HACS installs of the old Automower Yard integration update through the
+legacy `automower_yard` domain path. This repository keeps that compatibility
+package so HACS updates continue to work. New manual installs can use
+`robot_mower_yard` directly.
+
 1. In HACS, open **Integrations**.
 2. Use the three-dot menu and choose **Custom repositories**.
 3. Add this repository URL as category **Integration**.
