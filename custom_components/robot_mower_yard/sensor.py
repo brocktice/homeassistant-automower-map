@@ -192,6 +192,7 @@ class MowerBatterySensor(MowerSensor):
     _attr_name = "Battery"
     _attr_device_class = SensorDeviceClass.BATTERY
     _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, coordinator: ProviderCoordinator, mower_id: str) -> None:
         """Initialize the sensor."""
