@@ -56,7 +56,7 @@ async def async_setup_panel(hass: HomeAssistant) -> None:
         webcomponent_name="robot-mower-yard-panel",
         sidebar_title="Robot Mower Yard",
         sidebar_icon="mdi:robot-mower",
-        module_url=f"{STATIC_URL_PATH}/panel.js?v=20260523-1750",
+        module_url=f"{STATIC_URL_PATH}/panel.js?v=20260524-bridge",
         embed_iframe=False,
         require_admin=True,
     )

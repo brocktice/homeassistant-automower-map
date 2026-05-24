@@ -1,5 +1,7 @@
 class RobotMowerYardPanel extends HTMLElement {
   connectedCallback() {
+    this._onMessage = (event) => this.handleFrameMessage(event);
+    window.addEventListener("message", this._onMessage);
     this.innerHTML = `
       <style>
         :host {
@@ -307,6 +309,13 @@ class RobotMowerYardPanel extends HTMLElement {
     this.load();
   }
 
+  disconnectedCallback() {
+    if (this._onMessage) {
+      window.removeEventListener("message", this._onMessage);
+      this._onMessage = null;
+    }
+  }
+
   set hass(hass) {
     this._hass = hass;
     if (this.isConnected && !this._loaded) {
@@ -404,6 +413,41 @@ class RobotMowerYardPanel extends HTMLElement {
       panel?.classList.add("open");
     } catch (error) {
       status.textContent = `Save failed: ${error.message || error}`;
+    }
+  }
+
+  async handleFrameMessage(event) {
+    const message = event.data || {};
+    if (message.type !== "robot-mower-yard-state-request" || !message.requestId) {
+      return;
+    }
+    if (!this._hass || !event.source) {
+      return;
+    }
+    try {
+      const query = message.yardEntryId
+        ? `?yard_entry_id=${encodeURIComponent(message.yardEntryId)}`
+        : "";
+      const payload = await this._hass.callApi("GET", `robot_mower_yard/zones${query}`);
+      event.source.postMessage(
+        {
+          type: "robot-mower-yard-state-response",
+          requestId: message.requestId,
+          ok: true,
+          payload,
+        },
+        event.origin,
+      );
+    } catch (error) {
+      event.source.postMessage(
+        {
+          type: "robot-mower-yard-state-response",
+          requestId: message.requestId,
+          ok: false,
+          error: error.message || String(error),
+        },
+        event.origin,
+      );
     }
   }
 
@@ -543,7 +587,7 @@ function renderMowerStatus(mowers) {
 }
 
 function renderMaps(yard) {
-  const stamp = "20260523-1735";
+  const stamp = "20260524-bridge";
   const yardId = encodeURIComponent(yard.entry_id);
   const base = `/robot_mower_yard_static/zone_editor.html?ha=1&readonly=1&refresh_ms=2000&yard_entry_id=${yardId}&v=${stamp}`;
   return `

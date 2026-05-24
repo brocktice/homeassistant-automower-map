@@ -571,15 +571,7 @@
         }
         isRefreshingHomeAssistantState = true;
         try {
-          const response = await fetch(zonesApiUrl({ cacheBust: isReadonly }), {
-            cache: "no-store",
-            credentials: "same-origin",
-            headers: authHeaders(),
-          });
-          if (!response.ok) {
-            throw new Error(`Load failed: ${response.status}`);
-          }
-          const payload = await response.json();
+          const payload = await fetchHomeAssistantState({ cacheBust: isReadonly });
           if (updateZones) {
             if (mapMode === "heatmap" && isReadonly) {
               drawnItems.clearLayers();
@@ -626,6 +618,64 @@
         } finally {
           isRefreshingHomeAssistantState = false;
         }
+      }
+
+      async function fetchHomeAssistantState({ cacheBust = false } = {}) {
+        if (window.parent && window.parent !== window) {
+          try {
+            return await requestHomeAssistantStateFromParent();
+          } catch (error) {
+            console.debug("Parent yard state bridge unavailable", error);
+          }
+        }
+
+        const response = await fetch(zonesApiUrl({ cacheBust }), {
+          cache: "no-store",
+          credentials: "same-origin",
+          headers: authHeaders(),
+        });
+        if (!response.ok) {
+          throw new Error(`Load failed: ${response.status}`);
+        }
+        return response.json();
+      }
+
+      function requestHomeAssistantStateFromParent() {
+        const requestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        return new Promise((resolve, reject) => {
+          const timeout = window.setTimeout(() => {
+            window.removeEventListener("message", onMessage);
+            reject(new Error("Parent state request timed out"));
+          }, 900);
+
+          function onMessage(event) {
+            const message = event.data || {};
+            if (
+              event.origin !== window.location.origin ||
+              message.type !== "robot-mower-yard-state-response" ||
+              message.requestId !== requestId
+            ) {
+              return;
+            }
+            window.clearTimeout(timeout);
+            window.removeEventListener("message", onMessage);
+            if (message.ok) {
+              resolve(message.payload || {});
+            } else {
+              reject(new Error(message.error || "Parent state request failed"));
+            }
+          }
+
+          window.addEventListener("message", onMessage);
+          window.parent.postMessage(
+            {
+              type: "robot-mower-yard-state-request",
+              requestId,
+              yardEntryId,
+            },
+            window.location.origin,
+          );
+        });
       }
 
       async function saveZonesToHomeAssistant() {
