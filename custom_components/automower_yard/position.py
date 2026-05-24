@@ -76,7 +76,9 @@ def position_dict_with_origin(
     payload = _to_plain(position)
     if origin_latitude is not None and origin_longitude is not None:
         relative = extract_relative_xy(payload)
-        if relative is not None and _is_bare_numeric_pair(payload):
+        if relative is not None and (
+            _is_bare_numeric_pair(payload) or not _contains_coordinate_keys(payload)
+        ):
             return _position_dict_from_relative(
                 relative,
                 origin_latitude,
@@ -285,6 +287,28 @@ def _is_bare_numeric_pair(payload: Any) -> bool:
     if not isinstance(payload, list | tuple) or len(payload) != 2:
         return False
     return _as_float(payload[0]) is not None and _as_float(payload[1]) is not None
+
+
+def _contains_coordinate_keys(payload: Any, depth: int = 0) -> bool:
+    if depth > 6:
+        return False
+    if isinstance(payload, dict):
+        if any(key in payload for key in LATITUDE_KEYS) and any(
+            key in payload for key in LONGITUDE_KEYS
+        ):
+            return True
+        return any(
+            _contains_coordinate_keys(value, depth + 1)
+            for value in payload.values()
+            if isinstance(value, dict | list | tuple)
+        )
+    if isinstance(payload, list | tuple):
+        return any(
+            _contains_coordinate_keys(value, depth + 1)
+            for value in payload
+            if isinstance(value, dict | list | tuple)
+        )
+    return False
 
 
 def _looks_like_coordinate(latitude: float, longitude: float) -> bool:

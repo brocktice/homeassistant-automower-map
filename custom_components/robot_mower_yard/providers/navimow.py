@@ -379,12 +379,18 @@ class NavimowProvider(MowerProvider):
             return False
         self._last_location_debug[device_id] = {
             "topic": topic,
+            "payload": _truncate_payload(payload),
             "timestamp": timestamp,
             "relative_x": relative[0] if relative else None,
             "relative_y": relative[1] if relative else None,
             "position": position,
+            "origin_configured": self._origin_configured(),
         }
         if position is None:
+            _LOGGER.debug(
+                "Ignoring Navimow position payload without coordinates: %s",
+                payload,
+            )
             return False
         if timestamp is not None:
             self._last_location_timestamp[device_id] = timestamp
@@ -500,6 +506,13 @@ class NavimowProvider(MowerProvider):
             _coerce_float(self.entry.options.get(CONF_POSITION_OFFSET_EAST_M)),
         )
 
+    def _origin_configured(self) -> bool:
+        return (
+            _coerce_float(self.entry.options.get(CONF_BASE_STATION_LATITUDE)) is not None
+            and _coerce_float(self.entry.options.get(CONF_BASE_STATION_LONGITUDE))
+            is not None
+        )
+
     def _should_http_fetch(self) -> bool:
         now = time.monotonic()
         is_mqtt_stale = (
@@ -606,6 +619,16 @@ def _to_dict(value: Any) -> dict[str, Any]:
     if hasattr(value, "__dict__"):
         return dict(value.__dict__)
     return value if isinstance(value, dict) else {}
+
+
+def _truncate_payload(value: Any, limit: int = 800) -> Any:
+    try:
+        text = json.dumps(value, default=str, sort_keys=True)
+    except TypeError:
+        text = str(value)
+    if len(text) <= limit:
+        return value
+    return f"{text[:limit]}..."
 
 
 def _coerce_float(value: Any) -> float | None:

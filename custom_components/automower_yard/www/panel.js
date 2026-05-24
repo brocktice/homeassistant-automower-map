@@ -230,13 +230,24 @@ class RobotMowerYardPanel extends HTMLElement {
           overflow: hidden;
           background: #ffffff;
         }
+        .map-panel-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          border-bottom: 1px solid #e2e8e4;
+          padding: 8px 10px 8px 12px;
+        }
         .map-panel h3 {
           margin: 0;
-          padding: 10px 12px;
-          border-bottom: 1px solid #e2e8e4;
           color: #111111;
           font-size: 14px;
           font-weight: 700;
+        }
+        .map-expand {
+          height: 30px;
+          padding: 0 10px;
+          font-size: 13px;
         }
         .map-panel iframe {
           display: block;
@@ -244,6 +255,42 @@ class RobotMowerYardPanel extends HTMLElement {
           height: clamp(260px, 48vw, 480px);
           border: 0;
           aspect-ratio: 9 / 5;
+          background: #edf3ef;
+        }
+        .map-overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 2147483000;
+          display: grid;
+          grid-template-rows: auto minmax(0, 1fr);
+          background: #ffffff;
+        }
+        .map-overlay[hidden] {
+          display: none;
+        }
+        .map-overlay-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          min-height: 50px;
+          border-bottom: 1px solid #d6ded8;
+          background: #ffffff;
+          padding: max(8px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
+          box-sizing: border-box;
+        }
+        .map-overlay-title {
+          color: #111111;
+          font-size: 16px;
+          font-weight: 700;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .map-overlay iframe {
+          width: 100%;
+          height: 100%;
+          border: 0;
           background: #edf3ef;
         }
         table {
@@ -295,6 +342,9 @@ class RobotMowerYardPanel extends HTMLElement {
           .provider-settings form {
             grid-template-columns: 1fr;
           }
+          .map-grid {
+            grid-template-columns: 1fr;
+          }
         }
       </style>
       <main>
@@ -304,8 +354,16 @@ class RobotMowerYardPanel extends HTMLElement {
         </header>
         <div id="content" class="empty">Loading...</div>
       </main>
+      <div class="map-overlay" id="map-overlay" hidden>
+        <div class="map-overlay-header">
+          <div class="map-overlay-title" id="map-overlay-title"></div>
+          <button type="button" id="map-overlay-close">Close</button>
+        </div>
+        <iframe id="map-overlay-frame" title="Expanded mower map"></iframe>
+      </div>
     `;
     this.querySelector("#refresh").addEventListener("click", () => this.load());
+    this.querySelector("#map-overlay-close").addEventListener("click", () => this.closeMapOverlay());
     this.load();
   }
 
@@ -392,6 +450,36 @@ class RobotMowerYardPanel extends HTMLElement {
         await this.saveProviderSettings(form);
       });
     });
+    content.querySelectorAll("button[data-map-expand]").forEach((button) => {
+      button.addEventListener("click", () => this.openMapOverlay(button));
+    });
+  }
+
+  openMapOverlay(button) {
+    const overlay = this.querySelector("#map-overlay");
+    const frame = this.querySelector("#map-overlay-frame");
+    const title = this.querySelector("#map-overlay-title");
+    const src = button.dataset.mapSrc;
+    if (!overlay || !frame || !title || !src) {
+      return;
+    }
+    const url = new URL(src, window.location.origin);
+    url.searchParams.set("expanded", "1");
+    url.searchParams.set("_", String(Date.now()));
+    title.textContent = button.dataset.mapTitle || "Mower map";
+    frame.src = url.pathname + url.search;
+    overlay.hidden = false;
+  }
+
+  closeMapOverlay() {
+    const overlay = this.querySelector("#map-overlay");
+    const frame = this.querySelector("#map-overlay-frame");
+    if (frame) {
+      frame.removeAttribute("src");
+    }
+    if (overlay) {
+      overlay.hidden = true;
+    }
   }
 
   async saveProviderSettings(form) {
@@ -587,17 +675,33 @@ function renderMowerStatus(mowers) {
 }
 
 function renderMaps(yard) {
-  const stamp = "20260524-bridge";
+  const stamp = "20260524-location-maps";
   const yardId = encodeURIComponent(yard.entry_id);
   const base = `/robot_mower_yard_static/zone_editor.html?ha=1&readonly=1&refresh_ms=2000&yard_entry_id=${yardId}&v=${stamp}`;
   return `
     <div class="map-grid">
       <section class="map-panel">
-        <h3>Zone Map</h3>
+        <div class="map-panel-header">
+          <h3>Zone Map</h3>
+          <button
+            type="button"
+            class="map-expand"
+            data-map-title="${escapeHtml(yard.title)} Zone Map"
+            data-map-src="${base}&mode=zones"
+          >Expand</button>
+        </div>
         <iframe title="${escapeHtml(yard.title)} zone map" src="${base}&mode=zones"></iframe>
       </section>
       <section class="map-panel">
-        <h3>Heatmap</h3>
+        <div class="map-panel-header">
+          <h3>Heatmap</h3>
+          <button
+            type="button"
+            class="map-expand"
+            data-map-title="${escapeHtml(yard.title)} Heatmap"
+            data-map-src="${base}&mode=heatmap"
+          >Expand</button>
+        </div>
         <iframe title="${escapeHtml(yard.title)} heatmap" src="${base}&mode=heatmap"></iframe>
       </section>
     </div>
