@@ -450,7 +450,7 @@ class RobotMowerYardPanel extends HTMLElement {
         await this.saveProviderSettings(form);
       });
     });
-    content.querySelectorAll("button[data-map-expand]").forEach((button) => {
+    content.querySelectorAll("button.map-expand").forEach((button) => {
       button.addEventListener("click", () => this.openMapOverlay(button));
     });
   }
@@ -675,7 +675,7 @@ function renderMowerStatus(mowers) {
 }
 
 function renderMaps(yard) {
-  const stamp = "20260524-location-maps";
+  const stamp = "20260524-expand-fix";
   const yardId = encodeURIComponent(yard.entry_id);
   const base = `/robot_mower_yard_static/zone_editor.html?ha=1&readonly=1&refresh_ms=2000&yard_entry_id=${yardId}&v=${stamp}`;
   return `
