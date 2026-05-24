@@ -523,6 +523,8 @@ function renderMowerStatus(mowers) {
             <dd>${escapeHtml(mower.activity || mower.state || "Unknown")}</dd>
             <dt>Battery</dt>
             <dd>${mower.battery_percent == null ? "Unknown" : `${mower.battery_percent}%`}</dd>
+            <dt>Last updated</dt>
+            <dd>${escapeHtml(formatDateTime(mower.updated_at))}</dd>
             <dt>Zone</dt>
             <dd>${escapeHtml(mower.yard_zone || "Unknown")}</dd>
             <dt>All zones</dt>
@@ -568,6 +570,23 @@ function formatCoordinate(latitude, longitude) {
     return "Unknown";
   }
   return `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return "Unknown";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function escapeHtml(value) {

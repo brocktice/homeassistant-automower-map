@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import timedelta
 import logging
 import math
@@ -119,8 +120,9 @@ class ProviderCoordinator(DataUpdateCoordinator[dict[str, MowerSnapshot]]):
 
     async def _async_update_data(self) -> dict[str, MowerSnapshot]:
         """Poll provider data."""
+        updated_at = dt_util.utcnow().isoformat()
         snapshots = {
-            snapshot.stable_id: snapshot
+            snapshot.stable_id: replace(snapshot, updated_at=updated_at)
             for snapshot in await self.provider.async_get_mowers()
         }
         for snapshot in snapshots.values():
@@ -159,7 +161,9 @@ class ProviderCoordinator(DataUpdateCoordinator[dict[str, MowerSnapshot]]):
     ) -> None:
         """Merge pushed provider snapshots."""
         data = dict(self.data or {})
+        updated_at = dt_util.utcnow().isoformat()
         for snapshot in snapshots:
+            snapshot = replace(snapshot, updated_at=updated_at)
             data[snapshot.stable_id] = snapshot
             self._maybe_record_heatmap_sample(snapshot)
         self.async_set_updated_data(data)

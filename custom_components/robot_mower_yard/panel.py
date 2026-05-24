@@ -98,6 +98,7 @@ class RobotMowerYardOverviewView(HomeAssistantView):
                             "error_code": snapshot.error_code,
                             "battery_percent": snapshot.battery_percent,
                             "is_problem": snapshot.is_problem,
+                            "updated_at": snapshot.updated_at,
                             "latitude": snapshot.latitude,
                             "longitude": snapshot.longitude,
                             "yard_zone": find_zone(

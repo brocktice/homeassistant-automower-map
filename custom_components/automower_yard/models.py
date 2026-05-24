@@ -23,6 +23,7 @@ class MowerSnapshot:
     error_code: str | int | None
     is_problem: bool
     raw: dict[str, Any]
+    updated_at: str | None = None
 
     @property
     def stable_id(self) -> str:
