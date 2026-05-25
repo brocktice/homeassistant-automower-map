@@ -26,6 +26,11 @@ class RobotMowerYardPanel extends HTMLElement {
           gap: 16px;
           margin-bottom: 22px;
         }
+        .header-actions {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+        }
         h1 {
           margin: 0;
           color: #000000;
@@ -338,6 +343,12 @@ class RobotMowerYardPanel extends HTMLElement {
           main {
             padding: 18px;
           }
+          header {
+            align-items: flex-start;
+          }
+          .header-actions {
+            flex-shrink: 0;
+          }
           .provider-row,
           .provider-settings form {
             grid-template-columns: 1fr;
@@ -350,7 +361,10 @@ class RobotMowerYardPanel extends HTMLElement {
       <main>
         <header>
           <h1>Robot Mower Yard</h1>
-          <button id="refresh">Refresh</button>
+          <div class="header-actions">
+            <button id="panel-back">Back</button>
+            <button id="refresh">Refresh</button>
+          </div>
         </header>
         <div id="content" class="empty">Loading...</div>
       </main>
@@ -362,6 +376,7 @@ class RobotMowerYardPanel extends HTMLElement {
         <iframe id="map-overlay-frame" title="Expanded mower map"></iframe>
       </div>
     `;
+    this.querySelector("#panel-back").addEventListener("click", () => this.exitPanel());
     this.querySelector("#refresh").addEventListener("click", () => this.load());
     this.querySelector("#map-overlay-close").addEventListener("click", () => this.closeMapOverlay());
     this.load();
@@ -480,6 +495,14 @@ class RobotMowerYardPanel extends HTMLElement {
     if (overlay) {
       overlay.hidden = true;
     }
+  }
+
+  exitPanel() {
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    window.location.assign("/lovelace");
   }
 
   async saveProviderSettings(form) {
@@ -675,7 +698,7 @@ function renderMowerStatus(mowers) {
 }
 
 function renderMaps(yard) {
-  const stamp = "20260524-expand-fix";
+  const stamp = "20260524-mobile-back";
   const yardId = encodeURIComponent(yard.entry_id);
   const base = `/robot_mower_yard_static/zone_editor.html?ha=1&readonly=1&refresh_ms=2000&yard_entry_id=${yardId}&v=${stamp}`;
   return `
