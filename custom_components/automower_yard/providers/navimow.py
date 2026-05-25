@@ -70,6 +70,7 @@ class NavimowProvider(MowerProvider):
         self._last_location_timestamp: dict[str, int] = {}
         self._last_location_update_monotonic: dict[str, float] = {}
         self._last_location_relative: dict[str, tuple[float, float]] = {}
+        self._last_positions: dict[str, dict[str, float]] = {}
         self._last_location_debug: dict[str, Any] = {}
         self._callback: SnapshotCallback | None = None
         self._mqtt_refresh_lock = asyncio.Lock()
@@ -104,6 +105,7 @@ class NavimowProvider(MowerProvider):
     async def async_start(self, callback: SnapshotCallback) -> None:
         """Start Navimow MQTT push updates."""
         self._callback = callback
+        self._unloading = False
         if self._sdk is not None:
             return
         api = await self._async_api()
@@ -395,6 +397,7 @@ class NavimowProvider(MowerProvider):
         if timestamp is not None:
             self._last_location_timestamp[device_id] = timestamp
         self._last_location_update_monotonic[device_id] = now
+        self._last_positions[device_id] = position
         if relative is not None:
             self._last_location_relative[device_id] = relative
         state = self._states.get(device_id)
@@ -470,6 +473,10 @@ class NavimowProvider(MowerProvider):
         position = self._position_dict(state.position)
         if position is None and state.device_id in self._states:
             position = self._states[state.device_id].position
+        if position is None:
+            position = self._last_positions.get(state.device_id)
+        if position is not None:
+            self._last_positions[state.device_id] = position
         if position == state.position:
             return state
         return _state_with_position(state, position)
