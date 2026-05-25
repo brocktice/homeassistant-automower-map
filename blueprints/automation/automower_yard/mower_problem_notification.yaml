@@ -106,6 +106,14 @@ variables:
       | first
       | default('') }}
   mower_name: "{{ state_attr(status_entity, 'friendly_name') or status_entity }}"
+  mower_display_name: >-
+    {% set name = device_attr(mower_device, 'name') or mower_name %}
+    {{ name
+      | replace(' Status', '')
+      | replace(' status', '')
+      | replace(' Problem', '')
+      | replace(' problem', '')
+      | trim }}
   mower_provider: "{{ state_attr(status_entity, 'provider') or state_attr(problem_entity, 'provider') or 'unknown' }}"
   mower_state: "{{ states(status_entity) }}"
   mower_activity: "{{ state_attr(status_entity, 'activity') or state_attr(status_entity, 'mower_activity') or '' }}"
@@ -153,6 +161,14 @@ variables:
     {{ labels.get(activity, activity | replace('_', ' ') | title) if activity not in ['', 'unknown', 'Unknown', 'unavailable'] else '' }}
   zone_name: "{{ states(zone_entity) }}"
   zone_list: "{{ state_attr(zone_entity, 'yard_zones') or [] }}"
+  location_label: >-
+    {{ zone_name if zone_name not in ['unknown', 'Unknown', 'unavailable', ''] else 'an unknown location' }}
+  problem_since: >-
+    {% if problem_entity | length > 0 %}
+      {{ as_timestamp(states[problem_entity].last_changed) | timestamp_custom('%-I:%M %p', true) }}
+    {% else %}
+      now
+    {% endif %}
   latitude: "{{ state_attr(zone_entity, 'latitude') }}"
   longitude: "{{ state_attr(zone_entity, 'longitude') }}"
   snapshot_slug: "{{ status_entity | replace('.', '_') | replace('-', '_') }}"
@@ -160,26 +176,7 @@ variables:
   snapshot_url: "/local/robot_mower_yard_{{ snapshot_slug }}_problem_map.png"
   notification_url: "{{ open_url if open_url | length > 0 else snapshot_url }}"
   notification_message: >-
-    {{ notification_prefix }}
-    Mower: {{ mower_name }}.
-    Provider: {{ mower_provider }}.
-    Status: {{ mower_state_label }}.
-    {% if mower_activity_label | length > 0 %}
-    Activity: {{ mower_activity_label }}.
-    {% endif %}
-    {% if mower_error_code not in [none, '', 0, '0'] %}
-    Error code: {{ mower_error_code }}.
-    {% endif %}
-    {% if mower_battery not in [none, '', 'unknown', 'unavailable'] %}
-    Battery: {{ mower_battery }}%.
-    {% endif %}
-    Location: {{ zone_name if zone_name not in ['unknown', 'Unknown', 'unavailable'] else 'unknown yard zone' }}.
-    {% if zone_list | count > 1 %}
-    Matching zones: {{ zone_list | join(', ') }}.
-    {% endif %}
-    {% if latitude not in [none, '', 'unknown', 'unavailable'] and longitude not in [none, '', 'unknown', 'unavailable'] %}
-    Coordinates: {{ latitude }}, {{ longitude }}.
-    {% endif %}
+    The {{ mower_display_name }} is {{ mower_state_label | lower }} at {{ location_label }} since {{ problem_since }}.
 
 action:
   - condition: template
