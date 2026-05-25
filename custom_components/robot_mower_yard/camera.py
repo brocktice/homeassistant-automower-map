@@ -17,7 +17,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import CONF_ENTRY_KIND, ENTRY_KIND_PROVIDER, ENTRY_KIND_YARD
 from .const import ATTR_HEATMAP_MAX_AGE_DAYS, ATTR_HEATMAP_SAMPLE_COUNT
 from .coordinator import HEATMAP_MAX_AGE
-from .coordinator import ProviderCoordinator, YardCoordinator
+from .coordinator import ProviderCoordinator, YardCoordinator, runtime
 from .entity import mower_device_info, yard_device_info
 from .heatmap import apply_signed_evidence_heatmap
 from .models import MowerSnapshot
@@ -127,15 +127,19 @@ class MowerSnapshotCamera(CoordinatorEntity[ProviderCoordinator], Camera):
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
     ) -> bytes:
-        """Return a placeholder mower snapshot."""
+        """Return a yard map centered on the mower's current context."""
         snapshot = self.snapshot
-        return _render_lines(
-            [
-                snapshot.name or snapshot.stable_id,
-                f"State: {snapshot.state}",
-                f"Battery: {snapshot.battery_percent}%",
-                f"Problem: {snapshot.is_problem}",
-            ]
+        yard = runtime(self.hass)["yards"].get(self.coordinator.yard_entry_id)
+        zones = yard.zones if yard is not None else []
+        mowers = list((yard.data or {}).values()) if yard is not None and yard.data else []
+        if snapshot.stable_id not in {mower.stable_id for mower in mowers}:
+            mowers.append(snapshot)
+        return await self.hass.async_add_executor_job(
+            render_yard_map_image,
+            snapshot.name or snapshot.stable_id,
+            zones,
+            mowers,
+            [],
         )
 
 
