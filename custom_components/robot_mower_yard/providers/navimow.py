@@ -13,6 +13,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import config_entry_oauth2_flow
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from mower_sdk.api import MowerAPI
+from mower_sdk.errors import MowerAPIError
 from mower_sdk.models import DeviceStateMessage, DeviceStatus, MowerCommand
 from mower_sdk.sdk import NavimowSDK
 
@@ -81,14 +82,27 @@ class NavimowProvider(MowerProvider):
         if await self._async_valid_token() is None:
             return []
         api = await self._async_api()
-        devices = await api.async_get_devices()
-        self._devices = {device.id: device for device in devices}
-
         cached_snapshots = self._cached_snapshots()
         if cached_snapshots and not self._should_http_fetch():
             return cached_snapshots
 
-        statuses = await api.async_get_device_statuses([device.id for device in devices])
+        try:
+            devices = await api.async_get_devices()
+        except MowerAPIError as err:
+            self._last_http_fetch = time.monotonic()
+            _LOGGER.warning("Navimow device fetch failed; using cached mower data: %s", err)
+            return cached_snapshots
+        self._devices = {device.id: device for device in devices}
+        if self._callback is not None and self._sdk is None:
+            await self.async_start(self._callback)
+
+        cached_snapshots = self._cached_snapshots()
+        try:
+            statuses = await api.async_get_device_statuses([device.id for device in devices])
+        except MowerAPIError as err:
+            self._last_http_fetch = time.monotonic()
+            _LOGGER.warning("Navimow status fetch failed; using cached mower data: %s", err)
+            return cached_snapshots
         for device in devices:
             status = statuses.get(device.id)
             state = self._device_status_to_state(status) if status else None
@@ -110,7 +124,11 @@ class NavimowProvider(MowerProvider):
             return
         api = await self._async_api()
         if not self._devices:
-            devices = await api.async_get_devices()
+            try:
+                devices = await api.async_get_devices()
+            except MowerAPIError as err:
+                _LOGGER.warning("Navimow MQTT start delayed; device fetch failed: %s", err)
+                return
             self._devices = {device.id: device for device in devices}
         mqtt_info = await self._async_mqtt_info(api)
         mqtt_host = mqtt_info.get("mqttHost") or self.entry.data.get(
