@@ -121,8 +121,12 @@ class ProviderCoordinator(DataUpdateCoordinator[dict[str, MowerSnapshot]]):
     async def _async_update_data(self) -> dict[str, MowerSnapshot]:
         """Poll provider data."""
         updated_at = dt_util.utcnow().isoformat()
+        previous_data = self.data or {}
         snapshots = {
-            snapshot.stable_id: replace(snapshot, updated_at=updated_at)
+            snapshot.stable_id: self._snapshot_with_previous_position(
+                replace(snapshot, updated_at=updated_at),
+                previous_data.get(snapshot.stable_id),
+            )
             for snapshot in await self.provider.async_get_mowers()
         }
         for snapshot in snapshots.values():
@@ -163,7 +167,10 @@ class ProviderCoordinator(DataUpdateCoordinator[dict[str, MowerSnapshot]]):
         data = dict(self.data or {})
         updated_at = dt_util.utcnow().isoformat()
         for snapshot in snapshots:
-            snapshot = replace(snapshot, updated_at=updated_at)
+            snapshot = self._snapshot_with_previous_position(
+                replace(snapshot, updated_at=updated_at),
+                data.get(snapshot.stable_id),
+            )
             data[snapshot.stable_id] = snapshot
             self._maybe_record_heatmap_sample(snapshot)
         self.async_set_updated_data(data)
@@ -180,6 +187,25 @@ class ProviderCoordinator(DataUpdateCoordinator[dict[str, MowerSnapshot]]):
             for sample in self._heatmap_samples
             if sample.get("mower_id") == mower_id
         ]
+
+    def _snapshot_with_previous_position(
+        self,
+        snapshot: MowerSnapshot,
+        previous: MowerSnapshot | None,
+    ) -> MowerSnapshot:
+        """Keep a mower on the map when a later provider update omits coordinates."""
+        if (
+            snapshot.latitude is not None
+            and snapshot.longitude is not None
+        ) or previous is None:
+            return snapshot
+        if previous.latitude is None or previous.longitude is None:
+            return snapshot
+        return replace(
+            snapshot,
+            latitude=previous.latitude,
+            longitude=previous.longitude,
+        )
 
     def cutting_height_unit(self, mower_id: str) -> str:
         """Return preferred cutting height unit for a mower."""
