@@ -110,7 +110,11 @@ class ProviderCoordinator(DataUpdateCoordinator[dict[str, MowerSnapshot]]):
             _LOGGER,
             config_entry=entry,
             name=f"{DOMAIN}_{provider_type}_{entry.entry_id}",
-            update_interval=timedelta(seconds=30),
+            update_interval=getattr(
+                self.provider,
+                "poll_interval",
+                timedelta(seconds=30),
+            ),
         )
 
     @property

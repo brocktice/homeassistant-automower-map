@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import json
+import logging
 from typing import Any
 
 import aiohttp
@@ -24,9 +25,15 @@ from ..const import (
 from ..models import MowerSnapshot
 from .base import MowerProvider, SnapshotCallback
 
+_LOGGER = logging.getLogger(__name__)
+HUSQVARNA_REST_BACKOFF = timedelta(hours=1)
+HUSQVARNA_REST_POLL_INTERVAL = timedelta(hours=6)
+
 
 class HusqvarnaProvider(MowerProvider):
     """Fetch live mower snapshots from Husqvarna Automower Connect."""
+
+    poll_interval = HUSQVARNA_REST_POLL_INTERVAL
 
     def __init__(self, hass, entry) -> None:
         """Initialize the provider."""
@@ -34,12 +41,26 @@ class HusqvarnaProvider(MowerProvider):
         self._session = async_get_clientsession(hass)
         self._token: _Token | None = None
         self._mowers: dict[str, dict[str, Any]] = {}
+        self._rest_backoff_until: datetime | None = None
         self._ws_task: asyncio.Task | None = None
         self._stopped = False
 
     async def async_get_mowers(self) -> list[MowerSnapshot]:
         """Return live Husqvarna mower snapshots."""
-        payload = await self._request("GET", "/mowers")
+        if self._rest_backoff_until and dt_util.utcnow() < self._rest_backoff_until:
+            return [_snapshot(mower) for mower in self._mowers.values()]
+        try:
+            payload = await self._request("GET", "/mowers")
+        except HusqvarnaRateLimitError as err:
+            self._rest_backoff_until = dt_util.utcnow() + err.retry_after
+            if self._mowers:
+                _LOGGER.warning(
+                    "Husqvarna REST API is rate limited; using cached mower data for %s",
+                    err.retry_after,
+                )
+                return [_snapshot(mower) for mower in self._mowers.values()]
+            raise
+        self._rest_backoff_until = None
         self._mowers = {
             str(mower.get("id")): mower
             for mower in payload.get("data") or []
@@ -104,6 +125,8 @@ class HusqvarnaProvider(MowerProvider):
             if response.status >= 400:
                 if response.status in (401, 403):
                     self._token = None
+                if response.status == 429:
+                    raise HusqvarnaRateLimitError(payload, _retry_after(response))
                 raise RuntimeError(f"Husqvarna API failed: {response.status} {payload}")
             return payload
 
@@ -118,7 +141,12 @@ class HusqvarnaProvider(MowerProvider):
                 delay = 1
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as err:
+                _LOGGER.warning(
+                    "Husqvarna websocket disconnected; reconnecting in %s seconds: %s",
+                    delay,
+                    err,
+                )
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 60)
 
@@ -187,6 +215,15 @@ class _Token:
         return dt_util.utcnow() < self.expires_at - timedelta(minutes=5)
 
 
+class HusqvarnaRateLimitError(RuntimeError):
+    """Raised when Husqvarna REST quota is exhausted."""
+
+    def __init__(self, payload: dict[str, Any], retry_after: timedelta) -> None:
+        """Initialize the rate limit error."""
+        super().__init__(f"Husqvarna API rate limited: {payload}")
+        self.retry_after = retry_after
+
+
 def _snapshot(mower: dict[str, Any]) -> MowerSnapshot:
     attrs = mower.get("attributes") or {}
     system = attrs.get("system") or {}
@@ -240,3 +277,16 @@ def _coerce_int(value: Any) -> int | None:
         return round(float(value))
     except (TypeError, ValueError):
         return None
+
+
+def _retry_after(response: aiohttp.ClientResponse) -> timedelta:
+    value = response.headers.get("Retry-After")
+    if value is None:
+        return HUSQVARNA_REST_BACKOFF
+    try:
+        return timedelta(seconds=max(1, int(value)))
+    except ValueError:
+        retry_at = dt_util.parse_datetime(value)
+        if retry_at is None:
+            return HUSQVARNA_REST_BACKOFF
+        return max(timedelta(seconds=1), retry_at - dt_util.utcnow())
