@@ -5,6 +5,8 @@ from __future__ import annotations
 from io import BytesIO
 import math
 from typing import Any
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -26,6 +28,12 @@ WIDTH = 900
 HEIGHT = 500
 PADDING = 44
 EARTH_RADIUS_M = 6371000
+TILE_SIZE = 256
+MAX_TILE_ZOOM = 20
+SATELLITE_TILE_URL = (
+    "https://server.arcgisonline.com/ArcGIS/rest/services/"
+    "World_Imagery/MapServer/tile/{z}/{y}/{x}"
+)
 
 
 async def async_setup_entry(
@@ -181,9 +189,12 @@ def render_yard_map_image(
         return _png(image)
 
     bounds = _bounds(points)
-    project = _projector(bounds)
     map_box = (PADDING, 82, WIDTH - PADDING, HEIGHT - PADDING)
-    draw.rectangle(map_box, fill="#edf3ef", outline="#d6ded8")
+    viewport = _mercator_viewport(bounds, map_box)
+    project = viewport.project
+    if not _draw_satellite_tiles(image, map_box, viewport):
+        draw.rectangle(map_box, fill="#edf3ef", outline="#d6ded8")
+    draw.rectangle(map_box, outline="#d6ded8")
     if heatmap_samples:
         evidence_points = []
         for sample in heatmap_samples:
@@ -228,7 +239,9 @@ def render_yard_map_image(
                 if isinstance(point, list) and len(point) == 2
             ]
             if len(polygon) >= 3:
-                draw.polygon(polygon, fill=_zone_fill(color), outline=color)
+                _draw_zone_fill(image, polygon, color)
+                draw = ImageDraw.Draw(image)
+                draw.line([*polygon, polygon[0]], fill=color, width=3)
                 label_x = sum(point[0] for point in polygon) / len(polygon)
                 label_y = sum(point[1] for point in polygon) / len(polygon)
                 draw.text((label_x + 6, label_y + 6), str(zone["name"]), fill=color, font=font)
@@ -297,19 +310,118 @@ def _bounds(points: list[tuple[float, float]]) -> dict[str, float]:
     }
 
 
-def _projector(bounds: dict[str, float]):
-    usable_width = WIDTH - PADDING * 2
-    usable_height = HEIGHT - PADDING - 82
-    lat_span = bounds["max_lat"] - bounds["min_lat"]
-    lon_span = bounds["max_lon"] - bounds["min_lon"]
+class _MercatorViewport:
+    def __init__(
+        self,
+        zoom: int,
+        top_left_x: float,
+        top_left_y: float,
+        map_box: tuple[int, int, int, int],
+    ) -> None:
+        self.zoom = zoom
+        self.top_left_x = top_left_x
+        self.top_left_y = top_left_y
+        self.map_box = map_box
 
-    def project(point: tuple[float, float]) -> tuple[float, float]:
-        lat, lon = point
-        x = PADDING + ((lon - bounds["min_lon"]) / lon_span) * usable_width
-        y = 82 + ((bounds["max_lat"] - lat) / lat_span) * usable_height
-        return x, y
+    @property
+    def width(self) -> int:
+        return self.map_box[2] - self.map_box[0]
 
-    return project
+    @property
+    def height(self) -> int:
+        return self.map_box[3] - self.map_box[1]
+
+    def project(self, point: tuple[float, float]) -> tuple[float, float]:
+        world_x, world_y = _latlon_to_world(point[0], point[1], self.zoom)
+        return (
+            self.map_box[0] + world_x - self.top_left_x,
+            self.map_box[1] + world_y - self.top_left_y,
+        )
+
+
+def _mercator_viewport(
+    bounds: dict[str, float],
+    map_box: tuple[int, int, int, int],
+) -> _MercatorViewport:
+    map_width = map_box[2] - map_box[0]
+    map_height = map_box[3] - map_box[1]
+    zoom = _fit_zoom(bounds, map_width, map_height)
+    min_x, min_y = _latlon_to_world(bounds["max_lat"], bounds["min_lon"], zoom)
+    max_x, max_y = _latlon_to_world(bounds["min_lat"], bounds["max_lon"], zoom)
+    center_x = (min_x + max_x) / 2
+    center_y = (min_y + max_y) / 2
+    return _MercatorViewport(
+        zoom,
+        center_x - map_width / 2,
+        center_y - map_height / 2,
+        map_box,
+    )
+
+
+def _fit_zoom(bounds: dict[str, float], map_width: int, map_height: int) -> int:
+    for zoom in range(MAX_TILE_ZOOM, 0, -1):
+        min_x, min_y = _latlon_to_world(bounds["max_lat"], bounds["min_lon"], zoom)
+        max_x, max_y = _latlon_to_world(bounds["min_lat"], bounds["max_lon"], zoom)
+        if (max_x - min_x) <= map_width * 0.86 and (max_y - min_y) <= map_height * 0.86:
+            return zoom
+    return 1
+
+
+def _latlon_to_world(latitude: float, longitude: float, zoom: int) -> tuple[float, float]:
+    latitude = max(min(latitude, 85.05112878), -85.05112878)
+    longitude = ((longitude + 180) % 360) - 180
+    scale = TILE_SIZE * 2**zoom
+    sin_lat = math.sin(math.radians(latitude))
+    x = (longitude + 180.0) / 360.0 * scale
+    y = (
+        0.5
+        - math.log((1 + sin_lat) / (1 - sin_lat)) / (4 * math.pi)
+    ) * scale
+    return x, y
+
+
+def _draw_satellite_tiles(
+    image: Image.Image,
+    map_box: tuple[int, int, int, int],
+    viewport: _MercatorViewport,
+) -> bool:
+    basemap = Image.new("RGB", (viewport.width, viewport.height), "#edf3ef")
+    max_tile = 2**viewport.zoom
+    start_x = math.floor(viewport.top_left_x / TILE_SIZE)
+    end_x = math.floor((viewport.top_left_x + viewport.width) / TILE_SIZE)
+    start_y = math.floor(viewport.top_left_y / TILE_SIZE)
+    end_y = math.floor((viewport.top_left_y + viewport.height) / TILE_SIZE)
+    loaded = 0
+    for tile_x in range(start_x, end_x + 1):
+        for tile_y in range(start_y, end_y + 1):
+            if tile_y < 0 or tile_y >= max_tile:
+                continue
+            tile = _fetch_satellite_tile(
+                viewport.zoom,
+                tile_x % max_tile,
+                tile_y,
+            )
+            if tile is None:
+                continue
+            paste_x = round(tile_x * TILE_SIZE - viewport.top_left_x)
+            paste_y = round(tile_y * TILE_SIZE - viewport.top_left_y)
+            basemap.paste(tile, (paste_x, paste_y))
+            loaded += 1
+    if loaded == 0:
+        return False
+    image.paste(basemap, (map_box[0], map_box[1]))
+    return True
+
+
+def _fetch_satellite_tile(zoom: int, x: int, y: int) -> Image.Image | None:
+    url = SATELLITE_TILE_URL.format(z=zoom, x=x, y=y)
+    request = Request(url, headers={"User-Agent": "RobotMowerYard/0.2"})
+    try:
+        with urlopen(request, timeout=4) as response:
+            tile = Image.open(BytesIO(response.read()))
+            return tile.convert("RGB")
+    except (OSError, URLError, TimeoutError):
+        return None
 
 
 def _radius_px(center: tuple[float, float], radius_m: float, project) -> float:
@@ -332,12 +444,24 @@ def _zone_color(index: int) -> str:
     return ("#256d4d", "#2f5fb3", "#9c5a00", "#7b3f98", "#0f766e")[index % 5]
 
 
-def _zone_fill(color: str) -> tuple[int, int, int]:
+def _draw_zone_fill(
+    image: Image.Image,
+    polygon: list[tuple[float, float]],
+    color: str,
+) -> None:
+    overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    ImageDraw.Draw(overlay).polygon(polygon, fill=_zone_fill(color))
+    image.paste(Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB"))
+
+
+def _zone_fill(color: str) -> tuple[int, int, int, int]:
     color = color.lstrip("#")
-    base = (237, 243, 239)
-    foreground = (int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16))
-    alpha = 0.22
-    return tuple(round(foreground[i] * alpha + base[i] * (1 - alpha)) for i in range(3))
+    return (
+        int(color[0:2], 16),
+        int(color[2:4], 16),
+        int(color[4:6], 16),
+        54,
+    )
 
 
 def _png(image: Image.Image) -> bytes:
