@@ -281,7 +281,7 @@ class NavimowProvider(MowerProvider):
         sdk.on_state(self._handle_state)
         sdk.on_attributes(self._handle_attributes)
         mqtt = sdk._mqtt
-        original_client_on_message = mqtt.client.on_message
+        original_on_message = mqtt.on_message
         original_on_ready = mqtt.on_ready
         original_on_disconnected = mqtt.on_disconnected
 
@@ -299,23 +299,21 @@ class NavimowProvider(MowerProvider):
                 if not self._unloading:
                     await self._async_refresh_mqtt_credentials(sdk, api)
 
-        def _client_on_message(_client, _userdata, msg) -> None:
-            topic = msg.topic
-            payload_text = (msg.payload or b"").decode("utf-8", errors="replace")
-            device_id = _device_id_from_topic(topic)
+        # Hook the SDK's high-level message callback rather than the raw paho
+        # client callback. The SDK rebuilds its paho client on credential
+        # refresh (see NavimowMQTT._build_new_client), which discards any handler
+        # patched onto mqtt.client; mqtt.on_message survives that rebuild, so
+        # location/position updates keep flowing after a reconnect.
+        async def _on_message(topic: str, payload: bytes, device_id: str) -> None:
             if device_id:
-                self.hass.loop.call_soon_threadsafe(
-                    self._handle_location_message,
-                    topic,
-                    payload_text,
-                    device_id,
-                )
-            if original_client_on_message is not None:
-                original_client_on_message(_client, _userdata, msg)
+                payload_text = (payload or b"").decode("utf-8", errors="replace")
+                self._handle_location_message(topic, payload_text, device_id)
+            if original_on_message is not None:
+                await original_on_message(topic, payload, device_id)
 
         mqtt.on_ready = _on_ready
         mqtt.on_disconnected = _on_disconnected
-        mqtt.client.on_message = _client_on_message
+        mqtt.on_message = _on_message
         self._subscribe_location_topics()
 
     def _subscribe_location_topics(self) -> None:

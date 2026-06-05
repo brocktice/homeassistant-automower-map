@@ -621,12 +621,23 @@ def _fallback_location(snapshot, yard) -> tuple[float, float] | None:
     for provider in yard.providers.values():
         if provider.config_entry.data.get(CONF_PROVIDER_TYPE) != PROVIDER_NAVIMOW:
             continue
-        latitude = _optional_float(
-            provider.config_entry.options.get(CONF_BASE_STATION_LATITUDE)
+        options = provider.config_entry.options
+        latitude = _optional_float(options.get(CONF_BASE_STATION_LATITUDE))
+        longitude = _optional_float(options.get(CONF_BASE_STATION_LONGITUDE))
+        if not isinstance(latitude, float) or not isinstance(longitude, float):
+            continue
+        # Apply the same north/east offset correction used for live
+        # coordinates so the docked mower lands on the real dock instead of
+        # the uncorrected base-station origin. A docked mower is at the
+        # relative origin (0, 0).
+        corrected = position_dict_with_origin(
+            [0.0, 0.0],
+            latitude,
+            longitude,
+            _optional_float(options.get(CONF_POSITION_OFFSET_NORTH_M)),
+            _optional_float(options.get(CONF_POSITION_OFFSET_EAST_M)),
         )
-        longitude = _optional_float(
-            provider.config_entry.options.get(CONF_BASE_STATION_LONGITUDE)
-        )
-        if isinstance(latitude, float) and isinstance(longitude, float):
-            return latitude, longitude
+        if corrected is not None:
+            return corrected["lat"], corrected["lng"]
+        return latitude, longitude
     return None
